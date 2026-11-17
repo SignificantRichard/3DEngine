@@ -10,6 +10,8 @@ typedef struct {
     int faceAmount;
     Vector* vectors; // vector array
     int vectorAmount;
+    Vector position;
+    Vector rotation;
 } Mesh;
 
 Mesh createMesh();

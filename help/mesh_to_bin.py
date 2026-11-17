@@ -59,7 +59,7 @@ def main():
         if filename.lower().endswith(supported_extensions):
             input_path = os.path.join(input_dir, filename)
             base_name = os.path.splitext(filename)[0]
-            output_path = os.path.join(output_dir, f"{base_name}.bin")
+            output_path = os.path.join(output_dir, f"{base_name}.mdl")
             
             try:
                 convert_model(input_path, output_path)

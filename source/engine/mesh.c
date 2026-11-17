@@ -40,6 +40,8 @@ Mesh createMesh() {
     m.vectors = (Vector*)malloc(sizeof(Vector));
     m.vectorAmount = 0;
     m.faceAmount = 0;
+    m.position = blankVector();
+    m.rotation = blankVector();
     return m;
 }
 
@@ -123,8 +125,6 @@ Mesh loadMeshFromBin(const char* filename) {
 
         mesh.vectors[i] = createVector((float)x, (float)y, (float)z);
     }
-
-    // 3. Allocate and Read Faces
     // Each face is 3 * uint16_t indices (6 bytes total)
     resizeFaceArray(&mesh, faceAmount);
     for (int i = 0; i < faceAmount; i++) {

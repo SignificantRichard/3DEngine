@@ -20,9 +20,9 @@ void linearMult(Vector* v, float a) {
 }
 
 void linearAdd(Vector* v, float a) {
-    v->x *= a;
-    v->y *= a;
-    v->z *= a;
+    v->x += a;
+    v->y += a;
+    v->z += a;
 }
 
 void linearDiv(Vector* v, float a) {
@@ -35,4 +35,10 @@ void linearSub(Vector* v, float a) {
 
 int vectorEquals(Vector v1, Vector v2) {
     return !(v1.x - v2.x + v1.y - v2.y + v1.z - v2.z);
+}
+
+void vectorAdd(Vector* v, Vector* a) {
+    v->x += a->x;
+    v->y += a->y;
+    v->z += a->z;
 }
