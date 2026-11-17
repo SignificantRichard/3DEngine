@@ -14,6 +14,9 @@
 
 void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, float* y) {
     Vector nv = *v;
+    nv.x *= 0.0001f;
+    nv.y *= 0.0001f;
+    nv.z *= 0.0001f;
 
     float cosX = cosf(rotation.x);
     float sinX = sinf(rotation.x);
@@ -40,7 +43,11 @@ void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, fl
 
     if (nv.z <= 0.1f) nv.z = 0.1f;
 
-    float fovScale = 157.0f;
+    float fovDegrees = 70.0f;
+    float fovRadians = fovDegrees * (3.14159265f / 180.0f);
+    
+    float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
+    
     float centerX = INTERNAL_WIDTH / 2.0f;
     float centerY = INTERNAL_HEIGHT / 2.0f;
 
@@ -120,7 +127,7 @@ int main(int argc, char* argv[]) {
 
     Mesh cube = loadMeshFromBin("./source/res/models/cube.mdl");
 
-    cube.position = (Vector){ 0.0f, 0.0f, 30000.0f }; 
+    cube.position = (Vector){ 0.0f, 0.0f, 20.0f }; 
 
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -133,8 +140,8 @@ int main(int argc, char* argv[]) {
         SDL_RenderClear(renderer);
 
         renderModel(renderer, &cube, &assetManager);
-        cube.rotation.y += 0.001f;
-        cube.rotation.z += 0.0001f;
+        cube.rotation.y += 0.00001f;
+        cube.rotation.z += 0.00001f;
         cube.rotation.x += 0.00001f;
 
         SDL_RenderPresent(renderer);
