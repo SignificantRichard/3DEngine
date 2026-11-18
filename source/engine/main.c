@@ -18,40 +18,63 @@ struct Camera {
     Vector rotation;
 };
 
-void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, float* y) {
+bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, float* x, float* y) {
     Vector nv = *v;
+
+    {
+        float cosX = cosf(modelRot.x);
+        float sinX = sinf(modelRot.x);
+        float y1 = nv.y * cosX - nv.z * sinX;
+        float z1 = nv.y * sinX + nv.z * cosX;
+        nv.y = y1; nv.z = z1;
+
+        float cosY = cosf(modelRot.y);
+        float sinY = sinf(modelRot.y);
+        float x1 = nv.x * cosY + nv.z * sinY;
+        float z2 = -nv.x * sinY + nv.z * cosY;
+        nv.x = x1; nv.z = z2;
+
+        float cosZ = cosf(modelRot.z);
+        float sinZ = sinf(modelRot.z);
+        float x2 = nv.x * cosZ - nv.y * sinZ;
+        float y2 = nv.x * sinZ + nv.y * cosZ;
+        nv.x = x2; nv.y = y2;
+    }
+
     nv.x *= 0.0001f;
     nv.y *= 0.0001f;
     nv.z *= 0.0001f;
 
-    float cosX = cosf(rotation.x);
-    float sinX = sinf(rotation.x);
-    float y1 = nv.y * cosX - nv.z * sinX;
-    float z1 = nv.y * sinX + nv.z * cosX;
-    nv.y = y1;
-    nv.z = z1;
+    vectorAdd(&nv, &modelPos);
 
-    float cosY = cosf(rotation.y);
-    float sinY = sinf(rotation.y);
-    float x1 = nv.x * cosY + nv.z * sinY;
-    float z2 = -nv.x * sinY + nv.z * cosY;
-    nv.x = x1;
-    nv.z = z2;
+    vectorSub(&nv, &camera.position);
 
-    float cosZ = cosf(rotation.z);
-    float sinZ = sinf(rotation.z);
-    float x2 = nv.x * cosZ - nv.y * sinZ;
-    float y2 = nv.x * sinZ + nv.y * cosZ;
-    nv.x = x2;
-    nv.y = y2;
+    {
+        float cosZ = cosf(-camera.rotation.z);
+        float sinZ = sinf(-camera.rotation.z);
+        float x1 = nv.x * cosZ - nv.y * sinZ;
+        float y1 = nv.x * sinZ + nv.y * cosZ;
+        nv.x = x1; nv.y = y1;
 
-    vectorAdd(&nv, &position);
+        float cosY = cosf(-camera.rotation.y);
+        float sinY = sinf(-camera.rotation.y);
+        float x2 = nv.x * cosY + nv.z * sinY;
+        float z1 = -nv.x * sinY + nv.z * cosY;
+        nv.x = x2; nv.z = z1;
 
-    if (nv.z <= 0.1f) nv.z = 0.1f;
+        float cosX = cosf(-camera.rotation.x);
+        float sinX = sinf(-camera.rotation.x);
+        float y2 = nv.y * cosX - nv.z * sinX;
+        float z2 = nv.y * sinX + nv.z * cosX;
+        nv.y = y2; nv.z = z2;
+    }
+
+    if (nv.z <= 0.0f) {
+        return false;
+    }
 
     float fovDegrees = 70.0f;
     float fovRadians = fovDegrees * (3.14159265f / 180.0f);
-    
     float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
     
     float centerX = INTERNAL_WIDTH / 2.0f;
@@ -59,11 +82,13 @@ void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, fl
 
     *x = (nv.x / nv.z) * fovScale + centerX;
     *y = (nv.y / nv.z) * fovScale + centerY;
+
+    return true; // Successfully projected
 }
 
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
     if (!model || model->faceAmount <= 0) return;
-
+    
     int totalVerts = model->faceAmount * 3;
     
     SDL_Vertex* vert = (SDL_Vertex*)malloc(totalVerts * sizeof(SDL_Vertex));
@@ -75,38 +100,31 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
         return;
     }
 
-    // TEMP CODE
     SDL_Texture* texture = assetManager->textures[0].texture;
-
-    vectorSub(&model->position, &camera.position);
+    SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
 
     int base = 0;
     for (int i = 0; i < model->faceAmount; i++) {
         float x, y;
 
-        SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
-
         // Vertex A
-        vectorToScreenPos(model->faces[i].a, model->position, model->rotation, &x, &y);
+        vectorToScreenPos(model->faces[i].a, model->position, model->rotation, camera, &x, &y);
         vert[base + 0] = (SDL_Vertex){ {x, y}, white, {0.0f, 0.0f} };
 
         // Vertex B
-        vectorToScreenPos(model->faces[i].b, model->position, model->rotation, &x, &y);
+        vectorToScreenPos(model->faces[i].b, model->position, model->rotation, camera, &x, &y);
         vert[base + 1] = (SDL_Vertex){ {x, y}, white, {0.0f, 1.0f} };
 
         // Vertex C
-        vectorToScreenPos(model->faces[i].c, model->position, model->rotation, &x, &y);
+        vectorToScreenPos(model->faces[i].c, model->position, model->rotation, camera, &x, &y);
         vert[base + 2] = (SDL_Vertex){ {x, y}, white, {1.0f, 1.0f} };
 
-        // Correct indices mapping for every vertex in the triangles
         indices[base + 0] = base + 0;
         indices[base + 1] = base + 1;
         indices[base + 2] = base + 2;
 
         base += 3;
     }
-
-    vectorAdd(&model->position, &camera.position);
 
     SDL_RenderGeometry(renderer, texture, vert, totalVerts, indices, totalVerts);
 
@@ -157,7 +175,9 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        cube->rotation.x += 0.001f;
+        cube->rotation.x += 0.0001f;
+        cube->rotation.y += 0.0001f;
+        // camera.rotation.y += 0.0001f;
 
         renderModel(renderer, &world.meshes[0], camera, &assetManager);
 
