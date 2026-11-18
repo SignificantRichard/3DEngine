@@ -18,7 +18,7 @@ struct Camera {
     Vector rotation;
 };
 
-bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, float* x, float* y) {
+bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
     Vector nv = *v;
 
     {
@@ -70,6 +70,16 @@ bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camer
     }
 
     if (nv.z <= 0.0f) {
+        return false; // Behind camera
+    }
+
+    *outCamSpace = nv;
+    return true;
+}
+
+bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, float* x, float* y) {
+    Vector nv;
+    if (!getVectorCameraSpace(v, modelPos, modelRot, camera, &nv)) {
         return false;
     }
 
@@ -83,20 +93,82 @@ bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camer
     *x = (nv.x / nv.z) * fovScale + centerX;
     *y = (nv.y / nv.z) * fovScale + centerY;
 
-    return true; // Successfully projected
+    return true;
+}
+
+struct SortedFace {
+    int index;
+    float depth;
+    float x1, y1, x2, y2, x3, y3;
+};
+
+int compareFaces(const void* a, const void* b) {
+    const struct SortedFace* fa = (const struct SortedFace*)a;
+    const struct SortedFace* fb = (const struct SortedFace*)b;
+    if (fa->depth < fb->depth) return 1;
+    if (fa->depth > fb->depth) return -1;
+    return 0;
 }
 
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
     if (!model || model->faceAmount <= 0) return;
-    
-    int totalVerts = model->faceAmount * 3;
-    
+
+    struct SortedFace* sortedFaces = (struct SortedFace*)malloc(model->faceAmount * sizeof(struct SortedFace));
+    if (!sortedFaces) return;
+
+    int validFaceCount = 0;
+
+    float fovDegrees = 70.0f;
+    float fovRadians = fovDegrees * (3.14159265f / 180.0f);
+    float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
+    float centerX = INTERNAL_WIDTH / 2.0f;
+    float centerY = INTERNAL_HEIGHT / 2.0f;
+
+    for (int i = 0; i < model->faceAmount; i++) {
+        Vector cA, cB, cC;
+
+        if (!getVectorCameraSpace(model->faces[i].a, model->position, model->rotation, camera, &cA) ||
+            !getVectorCameraSpace(model->faces[i].b, model->position, model->rotation, camera, &cB) ||
+            !getVectorCameraSpace(model->faces[i].c, model->position, model->rotation, camera, &cC)) {
+            continue;
+        }
+
+        float avgDepth = (cA.z + cB.z + cC.z) / 3.0f;
+
+        float x1 = (cA.x / cA.z) * fovScale + centerX;
+        float y1 = (cA.y / cA.z) * fovScale + centerY;
+
+        float x2 = (cB.x / cB.z) * fovScale + centerX;
+        float y2 = (cB.y / cB.z) * fovScale + centerY;
+
+        float x3 = (cC.x / cC.z) * fovScale + centerX;
+        float y3 = (cC.y / cC.z) * fovScale + centerY;
+
+        sortedFaces[validFaceCount] = (struct SortedFace){
+            .index = i,
+            .depth = avgDepth,
+            .x1 = x1, .y1 = y1,
+            .x2 = x2, .y2 = y2,
+            .x3 = x3, .y3 = y3
+        };
+        validFaceCount++;
+    }
+
+    if (validFaceCount <= 0) {
+        free(sortedFaces);
+        return;
+    }
+
+    qsort(sortedFaces, validFaceCount, sizeof(struct SortedFace), compareFaces);
+
+    int totalVerts = validFaceCount * 3;
     SDL_Vertex* vert = (SDL_Vertex*)malloc(totalVerts * sizeof(SDL_Vertex));
     int* indices = (int*)malloc(totalVerts * sizeof(int));
     
     if (!vert || !indices) {
         free(vert);
         free(indices);
+        free(sortedFaces);
         return;
     }
 
@@ -104,20 +176,10 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
 
     int base = 0;
-    for (int i = 0; i < model->faceAmount; i++) {
-        float x, y;
-
-        // Vertex A
-        vectorToScreenPos(model->faces[i].a, model->position, model->rotation, camera, &x, &y);
-        vert[base + 0] = (SDL_Vertex){ {x, y}, white, {0.0f, 0.0f} };
-
-        // Vertex B
-        vectorToScreenPos(model->faces[i].b, model->position, model->rotation, camera, &x, &y);
-        vert[base + 1] = (SDL_Vertex){ {x, y}, white, {0.0f, 1.0f} };
-
-        // Vertex C
-        vectorToScreenPos(model->faces[i].c, model->position, model->rotation, camera, &x, &y);
-        vert[base + 2] = (SDL_Vertex){ {x, y}, white, {1.0f, 1.0f} };
+    for (int i = 0; i < validFaceCount; i++) {
+        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, white, {0.0f, 0.0f} };
+        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, white, {0.0f, 1.0f} };
+        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, white, {1.0f, 1.0f} };
 
         indices[base + 0] = base + 0;
         indices[base + 1] = base + 1;
@@ -130,6 +192,7 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
 
     free(vert);
     free(indices);
+    free(sortedFaces);
 }
 
 int main(int argc, char* argv[]) {
@@ -155,14 +218,18 @@ int main(int argc, char* argv[]) {
 
     World world = createWorld();
     
-    Mesh* cube;
     {
         Mesh c = loadMeshFromBin("./source/res/models/cube.mdl");
-        cube = addMeshToWorld(&world, &c);
+        addMeshToWorld(&world, &c);
+    }
+    {
+        Mesh c = loadMeshFromBin("./source/res/models/sphere.mdl");
+        addMeshToWorld(&world, &c);
     }
     
 
-    cube->position = (Vector){ 0.0f, 0.0f, 20.0f };
+    world.meshes[0].position = (Vector){ 0.0f, 0.0f, 20.0f };
+    world.meshes[1].position = (Vector){ 0.0f, 0.0f, 20.0f };
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
@@ -175,11 +242,12 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        cube->rotation.x += 0.0001f;
-        cube->rotation.y += 0.0001f;
         // camera.rotation.y += 0.0001f;
 
-        renderModel(renderer, &world.meshes[0], camera, &assetManager);
+        for (int i = 0; i < world.worldSize; i++) {
+            renderModel(renderer, &world.meshes[i], camera, &assetManager);
+        }
+
 
         SDL_RenderPresent(renderer);
     }
