@@ -19,4 +19,6 @@ int vectorEquals(Vector v1, Vector v2);
 void vectorAdd(Vector* v, Vector* a);
 void vectorSub(Vector* v, Vector* a);
 
+float vectorMag(Vector v, Vector a);
+
 #endif

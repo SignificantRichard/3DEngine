@@ -48,3 +48,11 @@ void vectorSub(Vector* v, Vector* a) {
     v->y -= a->y;
     v->z -= a->z;
 }
+
+float vectorMag(Vector v, Vector a) {
+    v.x -= a.x;
+    v.y -= a.y;
+    v.z -= a.z;
+
+    return cbrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}

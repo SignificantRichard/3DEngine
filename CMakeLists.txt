@@ -11,6 +11,7 @@ set(SOURCE_FILES
     ./source/engine/face.c
     ./source/engine/mesh.c
     ./source/engine/world.c
+    ./source/engine/instances.c
     ./source/engine/main.c
     ./source/world/entry.c
 )

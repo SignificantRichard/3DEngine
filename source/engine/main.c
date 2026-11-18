@@ -8,22 +8,11 @@
 #include "asset_manager.h"
 #include "mesh.h"
 #include "world.h"
+#include "instances.h"
 #include "../world/entry.h"
 
-#define INTERNAL_WIDTH 800
-#define INTERNAL_HEIGHT 600
-
-struct Camera {
-    Vector position;
-    Vector rotation;
-};
-
-typedef struct {
-    Vector movementDirection;
-    Vector position;
-    Vector rotation;
-    Vector rotationDirection;
-} Body;
+#define INTERNAL_WIDTH 1400
+#define INTERNAL_HEIGHT 800
 
 bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
     Vector nv = *v;
@@ -248,6 +237,39 @@ int pollInput(Body* body, float delta) {
     body->rotationDirection = localMovementDirection;
 }
 
+void swapModels(Mesh* a, Mesh* b) {
+    Mesh temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int sortModelPartition(World* world, Vector position, int low, int high) {
+    if (high - low == 0) {
+        return high;
+    }
+    int pivot = (high - low) / 2;
+    float pivotDist = vectorMag(world->meshes[pivot].position, position);
+
+    int i = low - 1;
+
+    for (int j = low; j <= high; j++) {
+        if (vectorMag(world->meshes[j].position, position) > pivotDist) {
+            i++;
+            swapModels(&world->meshes[i], &world->meshes[j]);
+        }
+    }
+    return i + 1;
+}
+
+int sortModels(World* world, Vector position, int low, int high) {
+    if (low < high) {
+        int pi = sortModelPartition(world, position, low, high);
+
+        sortModelPartition(world, position, low, pi - 1);
+        sortModelPartition(world, position, pi + 1, high);
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
@@ -289,7 +311,10 @@ int main(int argc, char* argv[]) {
 
     uint64_t NOW = SDL_GetPerformanceCounter();
     uint64_t LAST = 0;
-    double deltaTime = 0;
+    double deltaTime = 0.0;
+
+    double waitTime = 1000.0 / 60.0;
+    double waitedTime = 0.0;
 
     while (running) {
         LAST = NOW;
@@ -301,7 +326,13 @@ int main(int argc, char* argv[]) {
                 running = false;
             }
         }
+
+        waitedTime += deltaTime;
         pollInput(&player, deltaTime);
+        if (waitedTime > waitedTime) {
+            waitedTime = 0.0;
+            continue;
+        }
         vectorAdd(&player.rotation, &player.rotationDirection);
         
         {
@@ -324,10 +355,12 @@ int main(int argc, char* argv[]) {
         SDL_RenderClear(renderer);
         // camera.rotation.y += 0.0001f;
 
+        // sort the models
+        sortModels(&world, camera.position, 0, world.worldSize - 1);
+
         for (int i = 0; i < world.worldSize; i++) {
             renderModel(renderer, &world.meshes[i], camera, &assetManager);
         }
-
 
         SDL_RenderPresent(renderer);
     }
