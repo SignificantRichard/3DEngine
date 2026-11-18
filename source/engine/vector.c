@@ -42,3 +42,9 @@ void vectorAdd(Vector* v, Vector* a) {
     v->y += a->y;
     v->z += a->z;
 }
+
+void vectorSub(Vector* v, Vector* a) {
+    v->x -= a->x;
+    v->y -= a->y;
+    v->z -= a->z;
+}

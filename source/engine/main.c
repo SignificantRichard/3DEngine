@@ -7,10 +7,16 @@
 #include "image.h"
 #include "asset_manager.h"
 #include "mesh.h"
+#include "world.h"
 #include "../world/entry.h"
 
 #define INTERNAL_WIDTH 800
 #define INTERNAL_HEIGHT 600
+
+struct Camera {
+    Vector position;
+    Vector rotation;
+};
 
 void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, float* y) {
     Vector nv = *v;
@@ -55,7 +61,7 @@ void vectorToScreenPos(Vector* v, Vector position, Vector rotation, float* x, fl
     *y = (nv.y / nv.z) * fovScale + centerY;
 }
 
-void renderModel(SDL_Renderer* renderer, Mesh* model, AssetManager* assetManager) {
+void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
     if (!model || model->faceAmount <= 0) return;
 
     int totalVerts = model->faceAmount * 3;
@@ -72,6 +78,8 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, AssetManager* assetManager
     // TEMP CODE
     SDL_Texture* texture = assetManager->textures[0].texture;
 
+    vectorSub(&model->position, &camera.position);
+
     int base = 0;
     for (int i = 0; i < model->faceAmount; i++) {
         float x, y;
@@ -84,11 +92,11 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, AssetManager* assetManager
 
         // Vertex B
         vectorToScreenPos(model->faces[i].b, model->position, model->rotation, &x, &y);
-        vert[base + 1] = (SDL_Vertex){ {x, y}, white, {1.0f, 0.0f} };
+        vert[base + 1] = (SDL_Vertex){ {x, y}, white, {0.0f, 1.0f} };
 
         // Vertex C
         vectorToScreenPos(model->faces[i].c, model->position, model->rotation, &x, &y);
-        vert[base + 2] = (SDL_Vertex){ {x, y}, white, {0.0f, 1.0f} };
+        vert[base + 2] = (SDL_Vertex){ {x, y}, white, {1.0f, 1.0f} };
 
         // Correct indices mapping for every vertex in the triangles
         indices[base + 0] = base + 0;
@@ -97,6 +105,8 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, AssetManager* assetManager
 
         base += 3;
     }
+
+    vectorAdd(&model->position, &camera.position);
 
     SDL_RenderGeometry(renderer, texture, vert, totalVerts, indices, totalVerts);
 
@@ -125,9 +135,18 @@ int main(int argc, char* argv[]) {
     loadImageAsset(&assetManager, "./source/res/images/default.lif");
     SDL_Texture* texture = assetManager.textures[0].texture;
 
-    Mesh cube = loadMeshFromBin("./source/res/models/cube.mdl");
+    World world = createWorld();
+    
+    Mesh* cube;
+    {
+        Mesh c = loadMeshFromBin("./source/res/models/cube.mdl");
+        cube = addMeshToWorld(&world, &c);
+    }
+    
 
-    cube.position = (Vector){ 0.0f, 0.0f, 20.0f }; 
+    cube->position = (Vector){ 0.0f, 0.0f, 20.0f };
+
+    struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -138,11 +157,9 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
+        cube->rotation.x += 0.001f;
 
-        renderModel(renderer, &cube, &assetManager);
-        cube.rotation.y += 0.00001f;
-        cube.rotation.z += 0.00001f;
-        cube.rotation.x += 0.00001f;
+        renderModel(renderer, &world.meshes[0], camera, &assetManager);
 
         SDL_RenderPresent(renderer);
     }

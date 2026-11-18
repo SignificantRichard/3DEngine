@@ -8,4 +8,7 @@ typedef struct {
     int worldSize;
 } World;
 
+World createWorld();
+Mesh* addMeshToWorld(World* world, Mesh* mesh);
+
 #endif

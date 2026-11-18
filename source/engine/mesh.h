@@ -16,5 +16,6 @@ typedef struct {
 
 Mesh createMesh();
 Mesh loadMeshFromBin(const char* filename);
+void addFaceToMesh(Mesh* m, Face* f);
 
 #endif

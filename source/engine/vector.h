@@ -17,5 +17,6 @@ void linearSub(Vector* v, float a);
 int vectorEquals(Vector v1, Vector v2);
 
 void vectorAdd(Vector* v, Vector* a);
+void vectorSub(Vector* v, Vector* a);
 
 #endif
