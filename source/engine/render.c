@@ -17,6 +17,70 @@ struct SortedFace {
     float x1, y1, x2, y2, x3, y3;
 };
 
+static Vector normalizeVec(Vector v) {
+    float lenSq = dot(v, v);
+    if (lenSq <= 1e-12f) {
+        return blankVector();
+    }
+    float invLen = 1.0f / sqrtf(lenSq);
+    linearMult(&v, invLen);
+    return v;
+}
+
+static Vector rotateByEulerXYZ(Vector v, Vector rot) {
+    float cosX = cosf(rot.x);
+    float sinX = sinf(rot.x);
+    Vector r1 = {
+        v.x,
+        v.y * cosX - v.z * sinX,
+        v.y * sinX + v.z * cosX
+    };
+
+    float cosY = cosf(rot.y);
+    float sinY = sinf(rot.y);
+    Vector r2 = {
+        r1.x * cosY + r1.z * sinY,
+        r1.y,
+        -r1.x * sinY + r1.z * cosY
+    };
+
+    float cosZ = cosf(rot.z);
+    float sinZ = sinf(rot.z);
+    return (Vector){
+        r2.x * cosZ - r2.y * sinZ,
+        r2.x * sinZ + r2.y * cosZ,
+        r2.z
+    };
+}
+
+static float computeFaceBrightness(
+    const Face* face,
+    Vector modelRot,
+    Vector lightDirTowardLight,
+    float ambient
+) {
+    Vector u = *face->b;
+    vectorSub(&u, face->a); // u = b - a
+
+    Vector v = *face->c;
+    vectorSub(&v, face->a); // v = c - a
+
+    Vector normal = normalizeVec(cross(u, v));
+    normal = rotateByEulerXYZ(normal, modelRot);
+
+    Vector lightDir = normalizeVec(lightDirTowardLight);
+
+    float ndotl = dot(normal, lightDir);
+    if (ndotl < 0.0f) {
+        ndotl = 0.0f;
+    }
+
+    float brightness = ambient + (1.0f - ambient) * ndotl;
+    if (brightness < 0.0f) brightness = 0.0f;
+    if (brightness > 1.0f) brightness = 1.0f;
+    return brightness;
+}
+
 bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
     Vector nv = *v;
 
@@ -209,22 +273,23 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
     float uvScale = 1.0f;
 
+    Vector lightDir = { -0.5f, -0.8f, -0.3f }; // Points toward the light source
+    float ambient = 0.2f;
+
     int base = 0;
     for (int i = 0; i < validFaceCount; i++) {
         int faceIdx = sortedFaces[i].index;
+        const Face* face = &model->faces[faceIdx];
+
         SDL_FPoint uvA, uvB, uvC;
+        computeTriplanarUVs(face->a, face->b, face->c, uvScale, &uvA, &uvB, &uvC);
 
-        computeTriplanarUVs(
-            model->faces[faceIdx].a,
-            model->faces[faceIdx].b,
-            model->faces[faceIdx].c,
-            uvScale,
-            &uvA, &uvB, &uvC
-        );
+        float b = computeFaceBrightness(face, model->rotation, lightDir, ambient);
+        SDL_FColor faceColor = { b, b, b, 1.0f };
 
-        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, white, uvA };
-        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, white, uvB };
-        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, white, uvC };
+        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, faceColor, uvA };
+        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, faceColor, uvB };
+        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, faceColor, uvC };
 
         indices[base + 0] = base + 0;
         indices[base + 1] = base + 1;
