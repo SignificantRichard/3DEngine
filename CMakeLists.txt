@@ -13,6 +13,7 @@ set(SOURCE_FILES
     ./source/engine/world.c
     ./source/engine/ray.c
     ./source/engine/instances.c
+    ./source/engine/render.c
     ./source/engine/main.c
     ./source/world/entry.c
 )
