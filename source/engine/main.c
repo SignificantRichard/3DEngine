@@ -19,6 +19,7 @@
 #include "world.h"
 #include "instances.h"
 #include "render.h"
+#include "ray.h"
 #include "../world/entry.h"
 
 #include "settings.h"

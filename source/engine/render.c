@@ -8,6 +8,7 @@
 #include "instances.h"
 #include "asset_manager.h"
 #include "settings.h"
+#include "render.h"
 
 struct SortedFace {
     int index;
@@ -38,9 +39,9 @@ bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Ca
         nv.x = x2; nv.y = y2;
     }
 
-    nv.x *= 0.0001f;
-    nv.y *= 0.0001f;
-    nv.z *= 0.0001f;
+    // nv.x *= 0.0001f;
+    // nv.y *= 0.0001f;
+    // nv.z *= 0.0001f;
 
     vectorAdd(&nv, &modelPos);
 
@@ -205,7 +206,7 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
 
     SDL_Texture* texture = assetManager->textures[0].texture;
     SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
-    float uvScale = 0.0001f;
+    float uvScale = 1.0f;
 
     int base = 0;
     for (int i = 0; i < validFaceCount; i++) {

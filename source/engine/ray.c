@@ -1,3 +1,5 @@
+#include <float.h>
+#include <math.h>
 #include "ray.h"
 #include "vector.h"
 #include "mesh.h"
@@ -5,65 +7,78 @@
 #include "face.h"
 
 RaycastResult raycast(Vector origin, Vector direction, World* world) {
-    RaycastResult r = (RaycastResult){ .position = blankVector(), .distance = 0xffffffff, .hit = 0 };
-    
-    linearMult(&direction, -1.0);
-    // R(t) = O + tD
-    // P(u, v) = (1 - u - v)V0 + uV1 + vV2
+    RaycastResult r = {
+        .position = blankVector(),
+        .distance = FLT_MAX,
+        .hit = 0
+    };
 
-    // O + tD = (1 - u - v)V0 + uV1 + vV2
-    // E1 = V1 - V0
-    // E2 = V2 - V0
-    // -tD + uE1 + vE2 = O + V0
+    const float EPSILON = 1e-6f;
 
     for (int i = 0; i < world->worldSize; i++) {
         Mesh mesh = world->meshes[i];
+        Vector meshPos = mesh.position;
+
         for (int j = 0; j < mesh.faceAmount; j++) {
             Face face = mesh.faces[j];
 
-            // a = 0
-            // b = 1
-            // c = 2
-            Vector edge1 = *face.b;
-            vectorSub(&edge1, face.b);
+            Vector a = *face.a;
+            vectorAdd(&a, &meshPos);
 
-            Vector edge2 = *face.c;
-            vectorSub(&edge2, face.c);
+            Vector b = *face.b;
+            vectorAdd(&b, &meshPos);
 
+            Vector c = *face.c;
+            vectorAdd(&c, &meshPos);
 
-            // find u
+            Vector edge1 = b;
+            vectorSub(&edge1, &a);
+
+            Vector edge2 = c;
+            vectorSub(&edge2, &a);
+
             Vector p = cross(direction, edge2);
-            float det = dot(edge1, p); // TODO: make sure det != 0
-            Vector t = origin;
-            vectorSub(&t, face.a);
+            float det = dot(edge1, p);
 
-            float u = dot(t, p) / det;
-
-            if (u < 0.0 || u > 1.0) {
+            if (fabsf(det) < EPSILON) {
                 continue;
             }
 
-            Vector q = cross(t, edge1);
+            float invDet = 1.0f / det;
 
-            float v = dot(direction, q) / det;
+            Vector tVec = origin;
+            vectorSub(&tVec, &a);
 
-            if (v < 0.0 || u > 1.0) {
+            float u = dot(tVec, p) * invDet;
+            if (u < 0.0f || u > 1.0f) {
                 continue;
             }
 
-            float dist = dot(edge2, q) / det;
+            Vector q = cross(tVec, edge1);
+            float v = dot(direction, q) * invDet;
+            if (v < 0.0f || u + v > 1.0f) {
+                continue;
+            }
 
-            if (dist < r.distance) {
-                r.distance = dist;
+            // t is normalized to the length of `direction` (0 = origin, 1 = end)
+            float t = dot(edge2, q) * invDet;
+            if (t <= EPSILON || t > 1.0f) {
+                continue;
+            }
+
+            Vector offset = direction;
+            linearMult(&offset, t);
+            double worldDist = (double)sqrtf(dot(offset, offset));
+
+            if (worldDist < r.distance) {
+                r.distance = worldDist;
                 r.hit = 1;
 
                 r.position = origin;
-                Vector tDirection = direction;
-                linearMult(&tDirection, -r.distance);
-                vectorAdd(&r.position, &tDirection);
+                vectorAdd(&r.position, &offset);
             }
         }
     }
-    
+
     return r;
 }

@@ -5,6 +5,8 @@
 #include "mesh.h"
 #include "files.h"
 
+#define RESIZE_MULT 0.0001f
+
 void resizeFaceArray(Mesh* m, int size) {
     if (size < 0) {
         size = m->faceAmount - size;
@@ -123,7 +125,7 @@ Mesh loadMeshFromBin(const char* filename) {
         int16_t z = ptr[4] | (ptr[5] << 8);
         ptr += 6;
 
-        mesh.vectors[i] = createVector((float)x, (float)y, (float)z);
+        mesh.vectors[i] = createVector((float)x * RESIZE_MULT, (float)y * RESIZE_MULT, (float)z * RESIZE_MULT);
     }
     // Each face is 3 * uint16_t indices (6 bytes total)
     resizeFaceArray(&mesh, faceAmount);
