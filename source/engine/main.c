@@ -1,3 +1,12 @@
+/**
+ * @file main.c
+ * @author Wen Xin Gao (gaowenxin2007@gmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2026-11-18
+ * 
+ */
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdbool.h>
@@ -11,8 +20,7 @@
 #include "instances.h"
 #include "../world/entry.h"
 
-#define INTERNAL_WIDTH 1400
-#define INTERNAL_HEIGHT 800
+#include "settings.h"
 
 bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
     Vector nv = *v;
@@ -106,6 +114,46 @@ int compareFaces(const void* a, const void* b) {
     return 0;
 }
 
+static void computeTriplanarUVs(
+    const Vector* a,
+    const Vector* b,
+    const Vector* c,
+    float scale,
+    SDL_FPoint* uvA,
+    SDL_FPoint* uvB,
+    SDL_FPoint* uvC
+) {
+    float ux = b->x - a->x;
+    float uy = b->y - a->y;
+    float uz = b->z - a->z;
+
+    float vx = c->x - a->x;
+    float vy = c->y - a->y;
+    float vz = c->z - a->z;
+
+    float nx = uy * vz - uz * vy;
+    float ny = uz * vx - ux * vz;
+    float nz = ux * vy - uy * vx;
+
+    float ax = fabsf(nx);
+    float ay = fabsf(ny);
+    float az = fabsf(nz);
+
+    if (ax >= ay && ax >= az) {
+        *uvA = (SDL_FPoint){ a->z * scale, a->y * scale };
+        *uvB = (SDL_FPoint){ b->z * scale, b->y * scale };
+        *uvC = (SDL_FPoint){ c->z * scale, c->y * scale };
+    } else if (ay >= ax && ay >= az) {
+        *uvA = (SDL_FPoint){ a->x * scale, a->z * scale };
+        *uvB = (SDL_FPoint){ b->x * scale, b->z * scale };
+        *uvC = (SDL_FPoint){ c->x * scale, c->z * scale };
+    } else {
+        *uvA = (SDL_FPoint){ a->x * scale, a->y * scale };
+        *uvB = (SDL_FPoint){ b->x * scale, b->y * scale };
+        *uvC = (SDL_FPoint){ c->x * scale, c->y * scale };
+    }
+}
+
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
     if (!model || model->faceAmount <= 0) return;
 
@@ -170,12 +218,24 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
 
     SDL_Texture* texture = assetManager->textures[0].texture;
     SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float uvScale = 0.0001f;
 
     int base = 0;
     for (int i = 0; i < validFaceCount; i++) {
-        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, white, {0.0f, 0.0f} };
-        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, white, {0.0f, 1.0f} };
-        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, white, {1.0f, 1.0f} };
+        int faceIdx = sortedFaces[i].index;
+        SDL_FPoint uvA, uvB, uvC;
+
+        computeTriplanarUVs(
+            model->faces[faceIdx].a,
+            model->faces[faceIdx].b,
+            model->faces[faceIdx].c,
+            uvScale,
+            &uvA, &uvB, &uvC
+        );
+
+        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, white, uvA };
+        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, white, uvB };
+        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, white, uvC };
 
         indices[base + 0] = base + 0;
         indices[base + 1] = base + 1;
@@ -237,36 +297,37 @@ int pollInput(Body* body, float delta) {
     body->rotationDirection = localMovementDirection;
 }
 
-void swapModels(Mesh* a, Mesh* b) {
-    Mesh temp = *a;
+void swapDrawOrder(int* a, int* b) {
+    int temp = *a;
     *a = *b;
     *b = temp;
 }
 
-int sortModelPartition(World* world, Vector position, int low, int high) {
-    if (high - low == 0) {
-        return high;
-    }
-    int pivot = (high - low) / 2;
-    float pivotDist = vectorMag(world->meshes[pivot].position, position);
+int sortOrderPartition(World* world, Vector position, int low, int high) {
+    int pivotIndex = low + (high - low) / 2;
+    float pivotDist = vectorMag(world->meshes[world->drawOrder[pivotIndex]].position, position);
+
+    swapDrawOrder(&world->drawOrder[pivotIndex], &world->drawOrder[high]);
 
     int i = low - 1;
-
-    for (int j = low; j <= high; j++) {
-        if (vectorMag(world->meshes[j].position, position) > pivotDist) {
+    for (int j = low; j < high; j++) {
+        float distJ = vectorMag(world->meshes[world->drawOrder[j]].position, position);
+        if (distJ > pivotDist) {
             i++;
-            swapModels(&world->meshes[i], &world->meshes[j]);
+            swapDrawOrder(&world->drawOrder[i], &world->drawOrder[j]);
         }
     }
-    return i + 1;
+
+    i++;
+    swapDrawOrder(&world->drawOrder[i], &world->drawOrder[high]);
+    return i;
 }
 
-int sortModels(World* world, Vector position, int low, int high) {
+void sortDrawOrder(World* world, Vector position, int low, int high) {
     if (low < high) {
-        int pi = sortModelPartition(world, position, low, high);
-
-        sortModelPartition(world, position, low, pi - 1);
-        sortModelPartition(world, position, pi + 1, high);
+        int pi = sortOrderPartition(world, position, low, high);
+        sortDrawOrder(world, position, low, pi - 1);
+        sortDrawOrder(world, position, pi + 1, high);
     }
 }
 
@@ -301,11 +362,16 @@ int main(int argc, char* argv[]) {
         Mesh c = loadMeshFromBin("./source/res/models/sphere.mdl");
         addMeshToWorld(&world, &c);
     }
+    {
+        Mesh c = loadMeshFromBin("./source/res/models/sphere.mdl");
+        addMeshToWorld(&world, &c);
+    }
     
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 
     world.meshes[0].position = (Vector){ 0.0f, 0.0f, 20.0f };
-    world.meshes[1].position = (Vector){ 0.0f, 10.0f, 20.0f };
+    world.meshes[1].position = (Vector){ 10.0f, 0.0f, 20.0f };
+    world.meshes[2].position = (Vector){ -10.0f, 0.0f, 20.0f };
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
@@ -313,8 +379,10 @@ int main(int argc, char* argv[]) {
     uint64_t LAST = 0;
     double deltaTime = 0.0;
 
-    double waitTime = 1000.0 / 60.0;
+    double waitTime = frameRate;
     double waitedTime = 0.0;
+
+    uint64_t tick = 0;
 
     while (running) {
         LAST = NOW;
@@ -353,16 +421,23 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        // camera.rotation.y += 0.0001f;
+        
+        // test stuff
+        world.meshes[1].position.x = sinf((float)tick / 6000.0f) * 10.0f;
+        world.meshes[2].position.x = -sinf((float)tick / 6000.0f) * 10.0f;
+        world.meshes[1].position.z = cosf((float)tick / 6000.0f) * 10.0f + 20.0f;
+        world.meshes[2].position.z = cosf((float)tick / 6000.0f) * 10.0f + 20.0f;
 
         // sort the models
-        sortModels(&world, camera.position, 0, world.worldSize - 1);
+        sortDrawOrder(&world, camera.position, 0, world.worldSize - 1);
 
         for (int i = 0; i < world.worldSize; i++) {
-            renderModel(renderer, &world.meshes[i], camera, &assetManager);
+            renderModel(renderer, &world.meshes[world.drawOrder[i]], camera, &assetManager);
         }
 
         SDL_RenderPresent(renderer);
+
+        tick++;
     }
 
     // Clean up

@@ -56,3 +56,17 @@ float vectorMag(Vector v, Vector a) {
 
     return cbrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
+
+float dot(Vector a, Vector b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vector cross(Vector a, Vector b) {
+    Vector out = blankVector();
+
+    out.x = a.y * b.z - a.z * b.y;
+    out.y = a.z * b.x - a.x * b.z;
+    out.z = a.x * b.y - a.y * b.y;
+    
+    return out;
+}

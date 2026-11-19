@@ -21,4 +21,7 @@ void vectorSub(Vector* v, Vector* a);
 
 float vectorMag(Vector v, Vector a);
 
+float dot(Vector a, Vector b);
+Vector cross(Vector a, Vector b);
+
 #endif
