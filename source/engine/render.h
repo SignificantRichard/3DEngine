@@ -6,6 +6,7 @@
 #include "instances.h"
 #include "mesh.h"
 #include "asset_manager.h"
+#include "world.h"
 
 bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace);
 
@@ -24,3 +25,9 @@ static void computeTriplanarUVs(
 );
 
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager);
+
+void swapDrawOrder(int* a, int* b);
+
+int sortOrderPartition(World* world, Vector position, int low, int high);
+
+void sortDrawOrder(World* world, Vector position, int low, int high);

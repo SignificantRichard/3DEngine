@@ -16,6 +16,7 @@
 #include "image.h"
 #include "asset_manager.h"
 #include "mesh.h"
+#include "mesh_extended.h"
 #include "world.h"
 #include "instances.h"
 #include "render.h"
@@ -70,40 +71,6 @@ int pollInput(Body* body, float delta) {
     body->rotationDirection = localMovementDirection;
 }
 
-void swapDrawOrder(int* a, int* b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-int sortOrderPartition(World* world, Vector position, int low, int high) {
-    int pivotIndex = low + (high - low) / 2;
-    float pivotDist = vectorMag(world->meshes[world->drawOrder[pivotIndex]].position, position);
-
-    swapDrawOrder(&world->drawOrder[pivotIndex], &world->drawOrder[high]);
-
-    int i = low - 1;
-    for (int j = low; j < high; j++) {
-        float distJ = vectorMag(world->meshes[world->drawOrder[j]].position, position);
-        if (distJ > pivotDist) {
-            i++;
-            swapDrawOrder(&world->drawOrder[i], &world->drawOrder[j]);
-        }
-    }
-
-    i++;
-    swapDrawOrder(&world->drawOrder[i], &world->drawOrder[high]);
-    return i;
-}
-
-void sortDrawOrder(World* world, Vector position, int low, int high) {
-    if (low < high) {
-        int pi = sortOrderPartition(world, position, low, high);
-        sortDrawOrder(world, position, low, pi - 1);
-        sortDrawOrder(world, position, pi + 1, high);
-    }
-}
-
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
@@ -127,18 +94,9 @@ int main(int argc, char* argv[]) {
 
     World world = createWorld();
     
-    {
-        Mesh c = loadMeshFromBin("./source/res/models/cube.mdl");
-        addMeshToWorld(&world, &c);
-    }
-    {
-        Mesh c = loadMeshFromBin("./source/res/models/sphere.mdl");
-        addMeshToWorld(&world, &c);
-    }
-    {
-        Mesh c = loadMeshFromBin("./source/res/models/sphere.mdl");
-        addMeshToWorld(&world, &c);
-    }
+    loadAndAddModel(&world, "./source/res/models/cube.mdl");
+    loadAndAddModel(&world, "./source/res/models/sphere.mdl");
+    addClonedModelShallow(&world, world.meshes[1]);
     
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 

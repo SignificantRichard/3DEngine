@@ -10,6 +10,7 @@ set(SOURCE_FILES
     ./source/engine/vector.c
     ./source/engine/face.c
     ./source/engine/mesh.c
+    ./source/engine/mesh_extended.c
     ./source/engine/world.c
     ./source/engine/ray.c
     ./source/engine/instances.c

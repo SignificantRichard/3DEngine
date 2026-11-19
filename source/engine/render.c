@@ -9,6 +9,7 @@
 #include "asset_manager.h"
 #include "settings.h"
 #include "render.h"
+#include "world.h"
 
 struct SortedFace {
     int index;
@@ -237,4 +238,40 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     free(vert);
     free(indices);
     free(sortedFaces);
+}
+
+
+
+void swapDrawOrder(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int sortOrderPartition(World* world, Vector position, int low, int high) {
+    int pivotIndex = low + (high - low) / 2;
+    float pivotDist = vectorMag(world->meshes[world->drawOrder[pivotIndex]].position, position);
+
+    swapDrawOrder(&world->drawOrder[pivotIndex], &world->drawOrder[high]);
+
+    int i = low - 1;
+    for (int j = low; j < high; j++) {
+        float distJ = vectorMag(world->meshes[world->drawOrder[j]].position, position);
+        if (distJ > pivotDist) {
+            i++;
+            swapDrawOrder(&world->drawOrder[i], &world->drawOrder[j]);
+        }
+    }
+
+    i++;
+    swapDrawOrder(&world->drawOrder[i], &world->drawOrder[high]);
+    return i;
+}
+
+void sortDrawOrder(World* world, Vector position, int low, int high) {
+    if (low < high) {
+        int pi = sortOrderPartition(world, position, low, high);
+        sortDrawOrder(world, position, low, pi - 1);
+        sortDrawOrder(world, position, pi + 1, high);
+    }
 }

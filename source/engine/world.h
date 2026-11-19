@@ -11,6 +11,6 @@ typedef struct {
 } World;
 
 World createWorld();
-Mesh* addMeshToWorld(World* world, Mesh* mesh);
+int addMeshToWorld(World* world, Mesh* mesh);
 
 #endif
