@@ -53,20 +53,74 @@ static Vector rotateByEulerXYZ(Vector v, Vector rot) {
     };
 }
 
-static float computeFaceBrightness(
-    const Face* face,
-    Vector modelRot,
-    Vector lightDirTowardLight,
-    float ambient
-) {
+static Vector rotateByInverseEulerXYZ(Vector v, Vector rot) {
+    float cosZ = cosf(-rot.z);
+    float sinZ = sinf(-rot.z);
+    Vector r1 = {
+        v.x * cosZ - v.y * sinZ,
+        v.x * sinZ + v.y * cosZ,
+        v.z
+    };
+
+    float cosY = cosf(-rot.y);
+    float sinY = sinf(-rot.y);
+    Vector r2 = {
+        r1.x * cosY + r1.z * sinY,
+        r1.y,
+        -r1.x * sinY + r1.z * cosY
+    };
+
+    float cosX = cosf(-rot.x);
+    float sinX = sinf(-rot.x);
+    return (Vector){
+        r2.x,
+        r2.y * cosX - r2.z * sinX,
+        r2.y * sinX + r2.z * cosX
+    };
+}
+
+static Vector getFaceNormalOrFallback(const Face* face, const Vector* storedNormal) {
+    if (storedNormal != NULL) {
+        float lenSq = dot(*storedNormal, *storedNormal);
+        if (lenSq > 1e-12f) {
+            return normalizeVec(*storedNormal);
+        }
+    }
+
     Vector u = *face->b;
     vectorSub(&u, face->a); // u = b - a
 
     Vector v = *face->c;
     vectorSub(&v, face->a); // v = c - a
 
-    Vector normal = normalizeVec(cross(u, v));
-    normal = rotateByEulerXYZ(normal, modelRot);
+    return normalizeVec(cross(u, v));
+}
+
+static bool isFaceBackfacingCameraSpace(
+    const Face* face,
+    const Vector* storedNormal,
+    Vector modelRot,
+    Vector cameraRot,
+    Vector pointInCamSpace
+) {
+    Vector normal = getFaceNormalOrFallback(face, storedNormal);
+    normal = normalizeVec(rotateByEulerXYZ(normal, modelRot));
+    Vector camNormal = normalizeVec(rotateByInverseEulerXYZ(normal, cameraRot));
+
+    // Camera is at (0, 0, 0) in camera space; vector from camera to surface is pointInCamSpace.
+    // Normal pointing away from or perpendicular to camera has dot(camNormal, pointInCamSpace) >= 0.
+    return dot(camNormal, pointInCamSpace) >= 0.0f;
+}
+
+static float computeFaceBrightness(
+    const Face* face,
+    const Vector* storedNormal,
+    Vector modelRot,
+    Vector lightDirTowardLight,
+    float ambient
+) {
+    Vector normal = getFaceNormalOrFallback(face, storedNormal);
+    normal = normalizeVec(rotateByEulerXYZ(normal, modelRot));
 
     Vector lightDir = normalizeVec(lightDirTowardLight);
 
@@ -103,10 +157,6 @@ bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Ca
         float y2 = nv.x * sinZ + nv.y * cosZ;
         nv.x = x2; nv.y = y2;
     }
-
-    // nv.x *= 0.0001f;
-    // nv.y *= 0.0001f;
-    // nv.z *= 0.0001f;
 
     vectorAdd(&nv, &modelPos);
 
@@ -171,22 +221,31 @@ static void computeTriplanarUVs(
     const Vector* a,
     const Vector* b,
     const Vector* c,
+    const Vector* faceNormal,
     float scale,
     SDL_FPoint* uvA,
     SDL_FPoint* uvB,
     SDL_FPoint* uvC
 ) {
-    float ux = b->x - a->x;
-    float uy = b->y - a->y;
-    float uz = b->z - a->z;
+    float nx, ny, nz;
 
-    float vx = c->x - a->x;
-    float vy = c->y - a->y;
-    float vz = c->z - a->z;
+    if (faceNormal != NULL && dot(*faceNormal, *faceNormal) > 1e-12f) {
+        nx = faceNormal->x;
+        ny = faceNormal->y;
+        nz = faceNormal->z;
+    } else {
+        float ux = b->x - a->x;
+        float uy = b->y - a->y;
+        float uz = b->z - a->z;
 
-    float nx = uy * vz - uz * vy;
-    float ny = uz * vx - ux * vz;
-    float nz = ux * vy - uy * vx;
+        float vx = c->x - a->x;
+        float vy = c->y - a->y;
+        float vz = c->z - a->z;
+
+        nx = uy * vz - uz * vy;
+        ny = uz * vx - ux * vz;
+        nz = ux * vy - uy * vx;
+    }
 
     float ax = fabsf(nx);
     float ay = fabsf(ny);
@@ -230,6 +289,11 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
             continue;
         }
 
+        const Vector* faceNormal = (model->normals != NULL) ? &model->normals[i] : NULL;
+        if (isFaceBackfacingCameraSpace(&model->faces[i], faceNormal, model->rotation, camera.rotation, cA)) {
+            continue;
+        }
+
         float avgDepth = (cA.z + cB.z + cC.z) / 3.0f;
 
         float x1 = (cA.x / cA.z) * fovScale + centerX;
@@ -270,7 +334,6 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     }
 
     SDL_Texture* texture = assetManager->textures[0].texture;
-    SDL_FColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
     float uvScale = 1.0f;
 
     Vector lightDir = { -0.5f, -0.8f, -0.3f }; // Points toward the light source
@@ -280,11 +343,12 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     for (int i = 0; i < validFaceCount; i++) {
         int faceIdx = sortedFaces[i].index;
         const Face* face = &model->faces[faceIdx];
+        const Vector* faceNormal = (model->normals != NULL) ? &model->normals[faceIdx] : NULL;
 
         SDL_FPoint uvA, uvB, uvC;
-        computeTriplanarUVs(face->a, face->b, face->c, uvScale, &uvA, &uvB, &uvC);
+        computeTriplanarUVs(face->a, face->b, face->c, faceNormal, uvScale, &uvA, &uvB, &uvC);
 
-        float b = computeFaceBrightness(face, model->rotation, lightDir, ambient);
+        float b = computeFaceBrightness(face, faceNormal, model->rotation, lightDir, ambient);
         SDL_FColor faceColor = { b, b, b, 1.0f };
 
         vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, faceColor, uvA };
@@ -304,8 +368,6 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     free(indices);
     free(sortedFaces);
 }
-
-
 
 void swapDrawOrder(int* a, int* b) {
     int temp = *a;

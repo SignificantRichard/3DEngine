@@ -14,16 +14,6 @@ bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camer
 
 int compareFaces(const void* a, const void* b);
 
-static void computeTriplanarUVs(
-    const Vector* a,
-    const Vector* b,
-    const Vector* c,
-    float scale,
-    SDL_FPoint* uvA,
-    SDL_FPoint* uvB,
-    SDL_FPoint* uvC
-);
-
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager);
 
 void swapDrawOrder(int* a, int* b);

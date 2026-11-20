@@ -49,7 +49,23 @@ int pollInput(Body* body, float delta) {
         localMovementDirection.y += 1;
     }
 
-    linearMult(&localMovementDirection, delta * 0.01f);
+    if (keyStates[SDL_SCANCODE_0]) {
+        body->position = blankVector();
+        body->rotation = blankVector();
+    }
+
+    if (keyStates[SDL_SCANCODE_9]) {
+        body->position = createVector(99999999,99999999,99999999);
+        body->rotation = blankVector();
+    }
+
+
+    float speed = 0.02f;
+    if (keyStates[SDL_SCANCODE_LSHIFT]) {
+        speed = 0.5f;
+    }
+
+    linearMult(&localMovementDirection, delta * speed);
     body->movementDirection = localMovementDirection;
 
     localMovementDirection = blankVector();
@@ -95,14 +111,10 @@ int main(int argc, char* argv[]) {
     World world = createWorld();
     
     loadAndAddModel(&world, "./source/res/models/cube.mdl");
-    loadAndAddModel(&world, "./source/res/models/sphere.mdl");
-    addClonedModelShallow(&world, world.meshes[1]);
     
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 
     world.meshes[0].position = (Vector){ 0.0f, 0.0f, 20.0f };
-    world.meshes[1].position = (Vector){ 10.0f, 0.0f, 20.0f };
-    world.meshes[2].position = (Vector){ -10.0f, 0.0f, 20.0f };
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
@@ -152,12 +164,6 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-        
-        // test stuff
-        world.meshes[1].position.x = sinf((float)tick / 6000.0f) * 10.0f;
-        world.meshes[2].position.x = -sinf((float)tick / 6000.0f) * 10.0f;
-        world.meshes[1].position.z = cosf((float)tick / 6000.0f) * 10.0f + 20.0f;
-        world.meshes[2].position.z = cosf((float)tick / 6000.0f) * 10.0f + 20.0f;
 
         // sort the models
         sortDrawOrder(&world, camera.position, 0, world.worldSize - 1);

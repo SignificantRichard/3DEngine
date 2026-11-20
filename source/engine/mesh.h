@@ -7,6 +7,7 @@
 typedef struct {
     char** textures; // texture names. faces use offset to determine texture
     Face* faces; // array of pointers to vector array
+    Vector* normals; // array of face normals (parallel to faces)
     int faceAmount;
     Vector* vectors; // vector array
     int vectorAmount;
@@ -17,5 +18,6 @@ typedef struct {
 Mesh createMesh();
 Mesh loadMeshFromBin(const char* filename);
 void addFaceToMesh(Mesh* m, Face* f);
+void calculateMeshNormals(Mesh* m);
 
 #endif
