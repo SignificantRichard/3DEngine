@@ -79,7 +79,7 @@ Sprite loadImageAsSprite(char* path) {
     BinaryFileContents imageData = readBinFromFile(path);
     if (imageData.content == NULL || imageData.size == 0) {
         fprintf(stderr, "Failed to read image file: %s\n", path);
-        exit(EXIT_FAILURE);
+        return constructSprite(0, 0);
     }
 
     uint16_t headerLength = (imageData.content[0] << 8) + imageData.content[1];

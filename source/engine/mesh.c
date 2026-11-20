@@ -77,6 +77,7 @@ Mesh createMesh() {
     m.vectors = (Vector*)malloc(sizeof(Vector));
     m.vectorAmount = 0;
     m.faceAmount = 0;
+    m.texture = "./source/res/images/default.lif";
     m.position = blankVector();
     m.rotation = blankVector();
     return m;

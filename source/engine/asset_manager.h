@@ -13,13 +13,13 @@ typedef struct {
 typedef struct {
     ImageAsset* textures;
     SDL_Renderer* renderer;
-    int textureSize;
+    int textureCount;
 } AssetManager;
 
 AssetManager createAssetManager(SDL_Renderer* renderer);
 void addImageToAssetManager(AssetManager* assetManager, Sprite sprite, char* filePath);
 void removeImageFromAssetManager(AssetManager* assetManager, int index);
-void loadImageAsset(AssetManager* assetManager, char* filePath);
-int lookForImageAsset(char* filePath);
+int loadImageAsset(AssetManager* assetManager, char* filePath);
+int lookForImageAsset(AssetManager* assetManager, char* filePath);
 
 #endif

@@ -5,7 +5,7 @@
 #include "face.h"
 
 typedef struct {
-    char** textures; // texture names. faces use offset to determine texture
+    char* texture; // texture names. faces use offset to determine texture
     Face* faces; // array of pointers to vector array
     Vector* normals; // array of face normals (parallel to faces)
     int faceAmount;

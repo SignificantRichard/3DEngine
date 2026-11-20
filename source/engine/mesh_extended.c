@@ -30,7 +30,7 @@ Mesh cloneMeshDeep(const Mesh* src) {
     Mesh copy = *src;
     copy.vectors = NULL;
     copy.faces = NULL;
-    copy.textures = NULL;
+    copy.texture = NULL;
 
     if (src == NULL) {
         copy.faceAmount = 0;
@@ -88,7 +88,7 @@ int addClonedModelDeep(World* world, const Mesh* mesh) {
     if (index < 0) {
         free(deepCopy.vectors);
         free(deepCopy.faces);
-        free(deepCopy.textures);
+        free(deepCopy.texture);
     }
 
     return index;

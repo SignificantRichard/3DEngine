@@ -5,11 +5,11 @@
  * @version 0.1
  * @date 2026-11-16
  * 
- * @copyright Copyright (c) 2026
  * 
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "asset_manager.h"
@@ -34,11 +34,23 @@ SDL_Texture* convertToTexture(AssetManager* assetManager, Sprite sprite) {
     return texture;
 }
 
+int lookForImageAsset(AssetManager* assetManager, char* filePath) {
+    for (int i = 0; i < assetManager->textureCount; i++) {
+        if (assetManager->textures[i].filePath &&
+            strcmp(assetManager->textures[i].filePath, filePath) == 0) {
+            return i;
+        }
+    }
+    return 0; // loads the default texture if there is no asset
+}
+
 AssetManager createAssetManager(SDL_Renderer* renderer) {
     AssetManager a;
     a.renderer = renderer;
     a.textures = (ImageAsset*)malloc(sizeof(ImageAsset));
-    a.textureSize = 0;
+    a.textureCount = 0;
+
+    loadImageAsset(&a, "./source/res/images/default.lif"); // sets default texture in case of error
     return a;
 }
 
@@ -47,18 +59,20 @@ void addImageToAssetManager(AssetManager* assetManager, Sprite sprite, char* fil
     ImageAsset asset;
     asset.texture = texture;
     asset.filePath = filePath;
-    ImageAsset* temp = (ImageAsset*)realloc(assetManager->textures, ++assetManager->textureSize * sizeof(ImageAsset));
+    ImageAsset* temp = (ImageAsset*)realloc(assetManager->textures, ++assetManager->textureCount * sizeof(ImageAsset));
     assetManager->textures = temp;
-    assetManager->textures[assetManager->textureSize - 1] = asset;
+    assetManager->textures[assetManager->textureCount - 1] = asset;
 }
 
 void removeImageFromAssetManager(AssetManager* assetManager, int index) {
-    assetManager->textures[index] = assetManager->textures[--assetManager->textureSize];
-    ImageAsset* temp = (ImageAsset*)realloc(assetManager->textures, assetManager->textureSize * sizeof(ImageAsset));
+    assetManager->textures[index] = assetManager->textures[--assetManager->textureCount];
+    ImageAsset* temp = (ImageAsset*)realloc(assetManager->textures, assetManager->textureCount * sizeof(ImageAsset));
     assetManager->textures = temp;
 }
 
-void loadImageAsset(AssetManager* assetManager, char* filePath) {
+int loadImageAsset(AssetManager* assetManager, char* filePath) {
     Sprite sprite = loadImageAsSprite(filePath);
     addImageToAssetManager(assetManager, sprite, filePath);
+    printf("Added %s to assets\n", filePath);
+    return sprite.width;
 }

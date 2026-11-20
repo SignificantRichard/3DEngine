@@ -105,13 +105,13 @@ int main(int argc, char* argv[]) {
     SDL_Event event;
 
     AssetManager assetManager = createAssetManager(renderer);
-    loadImageAsset(&assetManager, "./source/res/images/default.lif");
-    SDL_Texture* texture = assetManager.textures[0].texture;
 
     World world = createWorld();
     
     loadAndAddModel(&world, "./source/res/models/cube.mdl");
-    
+    loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
+    world.meshes[0].texture = "./source/res/images/alternate.lif";
+
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 
     world.meshes[0].position = (Vector){ 0.0f, 0.0f, 20.0f };
@@ -177,8 +177,6 @@ int main(int argc, char* argv[]) {
         tick++;
     }
 
-    // Clean up
-    SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

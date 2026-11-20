@@ -333,7 +333,7 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
         return;
     }
 
-    SDL_Texture* texture = assetManager->textures[0].texture;
+    SDL_Texture* texture = assetManager->textures[lookForImageAsset(assetManager, model->texture)].texture;
     float uvScale = 1.0f;
 
     Vector lightDir = { -0.5f, -0.8f, -0.3f }; // Points toward the light source
