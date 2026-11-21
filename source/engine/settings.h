@@ -1,8 +1,8 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
-#define frameRate 1000.0 / 60.0
-#define pollRate 1000.0 / 120.0
+#define frameRate 1.0 / 60.0
+#define pollRate 1.0 / 120.0
 #define INTERNAL_WIDTH 1400
 #define INTERNAL_HEIGHT 800
 

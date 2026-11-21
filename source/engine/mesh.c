@@ -83,6 +83,20 @@ Mesh createMesh() {
     return m;
 }
 
+/**
+ * @brief Rescales by scale rel to current
+ * 
+ * @param mesh 
+ * @param scale 
+ */
+void rescaleMesh(Mesh* mesh, float scale) {
+    mesh->scale = scale;
+
+    for (int i = 0; i < mesh->vectorAmount; i++) {
+        linearMult(&mesh->vectors[i], scale);
+    }
+}
+
 void calculateMeshNormals(Mesh* m) {
     for (int i = 0; i < m->faceAmount; i++) {
         m->normals[i] = computeFaceNormal(m->faces[i]);

@@ -13,11 +13,13 @@ typedef struct {
     int vectorAmount;
     Vector position;
     Vector rotation;
+    float scale;
 } Mesh;
 
 Mesh createMesh();
 Mesh loadMeshFromBin(const char* filename);
 void addFaceToMesh(Mesh* m, Face* f);
 void calculateMeshNormals(Mesh* m);
+void rescaleMesh(Mesh* mesh, float scale);
 
 #endif

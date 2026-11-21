@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
 #include <SDL3/SDL.h>
@@ -10,6 +11,8 @@
 #include "settings.h"
 #include "render.h"
 #include "world.h"
+
+#define NEAR_PLANE 0.1f
 
 struct SortedFace {
     int index;
@@ -107,8 +110,6 @@ static bool isFaceBackfacingCameraSpace(
     normal = normalizeVec(rotateByEulerXYZ(normal, modelRot));
     Vector camNormal = normalizeVec(rotateByInverseEulerXYZ(normal, cameraRot));
 
-    // Camera is at (0, 0, 0) in camera space; vector from camera to surface is pointInCamSpace.
-    // Normal pointing away from or perpendicular to camera has dot(camNormal, pointInCamSpace) >= 0.
     return dot(camNormal, pointInCamSpace) >= 0.0f;
 }
 
@@ -135,7 +136,14 @@ static float computeFaceBrightness(
     return brightness;
 }
 
-bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
+// Transforms a point into camera space without rejecting behind-camera points.
+static void transformToCameraSpaceUnclipped(
+    const Vector* v,
+    Vector modelPos,
+    Vector modelRot,
+    struct Camera camera,
+    Vector* outCamSpace
+) {
     Vector nv = *v;
 
     {
@@ -159,7 +167,6 @@ bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Ca
     }
 
     vectorAdd(&nv, &modelPos);
-
     vectorSub(&nv, &camera.position);
 
     {
@@ -182,6 +189,13 @@ bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Ca
         nv.y = y2; nv.z = z2;
     }
 
+    *outCamSpace = nv;
+}
+
+bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
+    Vector nv;
+    transformToCameraSpaceUnclipped(v, modelPos, modelRot, camera, &nv);
+
     if (nv.z <= 0.0f) {
         return false; // Behind camera
     }
@@ -199,7 +213,7 @@ bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camer
     float fovDegrees = 70.0f;
     float fovRadians = fovDegrees * (3.14159265f / 180.0f);
     float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
-    
+
     float centerX = INTERNAL_WIDTH / 2.0f;
     float centerY = INTERNAL_HEIGHT / 2.0f;
 
@@ -215,6 +229,73 @@ int compareFaces(const void* a, const void* b) {
     if (fa->depth < fb->depth) return 1;
     if (fa->depth > fb->depth) return -1;
     return 0;
+}
+
+static Vector lerpCamVec(Vector a, Vector b, float nearZ) {
+    float denom = b.z - a.z;
+    if (fabsf(denom) <= 1e-6f) {
+        return a;
+    }
+    float t = (nearZ - a.z) / denom;
+    return (Vector){
+        a.x + (b.x - a.x) * t,
+        a.y + (b.y - a.y) * t,
+        nearZ
+    };
+}
+
+static int clipTriangleNearPlane(Vector a, Vector b, Vector c, float nearZ, Vector outTris[2][3]) {
+    Vector poly[4];
+    int polyCount = 0;
+
+    Vector src[3] = { a, b, c };
+    Vector prev = src[2];
+    bool prevInside = (prev.z >= nearZ);
+
+    for (int i = 0; i < 3; i++) {
+        Vector curr = src[i];
+        bool currInside = (curr.z >= nearZ);
+
+        if (currInside) {
+            if (!prevInside) {
+                poly[polyCount++] = lerpCamVec(prev, curr, nearZ);
+            }
+            poly[polyCount++] = curr;
+        } else if (prevInside) {
+            poly[polyCount++] = lerpCamVec(prev, curr, nearZ);
+        }
+
+        prev = curr;
+        prevInside = currInside;
+    }
+
+    if (polyCount < 3) {
+        return 0;
+    }
+
+    outTris[0][0] = poly[0];
+    outTris[0][1] = poly[1];
+    outTris[0][2] = poly[2];
+
+    if (polyCount == 4) {
+        outTris[1][0] = poly[0];
+        outTris[1][1] = poly[2];
+        outTris[1][2] = poly[3];
+        return 2;
+    }
+
+    return 1;
+}
+
+static bool isTriangleOnScreen(float x1, float y1, float x2, float y2, float x3, float y3) {
+    float minX = fminf(x1, fminf(x2, x3));
+    float maxX = fmaxf(x1, fmaxf(x2, x3));
+    float minY = fminf(y1, fminf(y2, y3));
+    float maxY = fmaxf(y1, fmaxf(y2, y3));
+
+    if (maxX < 0.0f || minX > (float)INTERNAL_WIDTH) return false;
+    if (maxY < 0.0f || minY > (float)INTERNAL_HEIGHT) return false;
+    return true;
 }
 
 static void computeTriplanarUVs(
@@ -269,7 +350,8 @@ static void computeTriplanarUVs(
 void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
     if (!model || model->faceAmount <= 0) return;
 
-    struct SortedFace* sortedFaces = (struct SortedFace*)malloc(model->faceAmount * sizeof(struct SortedFace));
+    int maxCandidateTris = model->faceAmount * 2;
+    struct SortedFace* sortedFaces = (struct SortedFace*)malloc((size_t)maxCandidateTris * sizeof(struct SortedFace));
     if (!sortedFaces) return;
 
     int validFaceCount = 0;
@@ -282,37 +364,46 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
 
     for (int i = 0; i < model->faceAmount; i++) {
         Vector cA, cB, cC;
-
-        if (!getVectorCameraSpace(model->faces[i].a, model->position, model->rotation, camera, &cA) ||
-            !getVectorCameraSpace(model->faces[i].b, model->position, model->rotation, camera, &cB) ||
-            !getVectorCameraSpace(model->faces[i].c, model->position, model->rotation, camera, &cC)) {
-            continue;
-        }
+        transformToCameraSpaceUnclipped(model->faces[i].a, model->position, model->rotation, camera, &cA);
+        transformToCameraSpaceUnclipped(model->faces[i].b, model->position, model->rotation, camera, &cB);
+        transformToCameraSpaceUnclipped(model->faces[i].c, model->position, model->rotation, camera, &cC);
 
         const Vector* faceNormal = (model->normals != NULL) ? &model->normals[i] : NULL;
         if (isFaceBackfacingCameraSpace(&model->faces[i], faceNormal, model->rotation, camera.rotation, cA)) {
             continue;
         }
 
-        float avgDepth = (cA.z + cB.z + cC.z) / 3.0f;
+        Vector clipped[2][3];
+        int triCount = clipTriangleNearPlane(cA, cB, cC, NEAR_PLANE, clipped);
 
-        float x1 = (cA.x / cA.z) * fovScale + centerX;
-        float y1 = (cA.y / cA.z) * fovScale + centerY;
+        for (int t = 0; t < triCount; t++) {
+            Vector p1 = clipped[t][0];
+            Vector p2 = clipped[t][1];
+            Vector p3 = clipped[t][2];
 
-        float x2 = (cB.x / cB.z) * fovScale + centerX;
-        float y2 = (cB.y / cB.z) * fovScale + centerY;
+            float avgDepth = (p1.z + p2.z + p3.z) / 3.0f;
 
-        float x3 = (cC.x / cC.z) * fovScale + centerX;
-        float y3 = (cC.y / cC.z) * fovScale + centerY;
+            float x1 = (p1.x / p1.z) * fovScale + centerX;
+            float y1 = (p1.y / p1.z) * fovScale + centerY;
 
-        sortedFaces[validFaceCount] = (struct SortedFace){
-            .index = i,
-            .depth = avgDepth,
-            .x1 = x1, .y1 = y1,
-            .x2 = x2, .y2 = y2,
-            .x3 = x3, .y3 = y3
-        };
-        validFaceCount++;
+            float x2 = (p2.x / p2.z) * fovScale + centerX;
+            float y2 = (p2.y / p2.z) * fovScale + centerY;
+
+            float x3 = (p3.x / p3.z) * fovScale + centerX;
+            float y3 = (p3.y / p3.z) * fovScale + centerY;
+
+            if (!isTriangleOnScreen(x1, y1, x2, y2, x3, y3)) {
+                continue;
+            }
+
+            sortedFaces[validFaceCount++] = (struct SortedFace){
+                .index = i,
+                .depth = avgDepth,
+                .x1 = x1, .y1 = y1,
+                .x2 = x2, .y2 = y2,
+                .x3 = x3, .y3 = y3
+            };
+        }
     }
 
     if (validFaceCount <= 0) {
@@ -320,12 +411,12 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
         return;
     }
 
-    qsort(sortedFaces, validFaceCount, sizeof(struct SortedFace), compareFaces);
+    qsort(sortedFaces, (size_t)validFaceCount, sizeof(struct SortedFace), compareFaces);
 
     int totalVerts = validFaceCount * 3;
-    SDL_Vertex* vert = (SDL_Vertex*)malloc(totalVerts * sizeof(SDL_Vertex));
-    int* indices = (int*)malloc(totalVerts * sizeof(int));
-    
+    SDL_Vertex* vert = (SDL_Vertex*)malloc((size_t)totalVerts * sizeof(SDL_Vertex));
+    int* indices = (int*)malloc((size_t)totalVerts * sizeof(int));
+
     if (!vert || !indices) {
         free(vert);
         free(indices);

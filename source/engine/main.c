@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
 
     World world = createWorld();
     
-    loadAndAddModel(&world, "./source/res/models/cube.mdl");
+    loadAndAddModel(&world, "./source/res/models/./cube.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
     world.meshes[0].texture = "./source/res/images/alternate.lif";
 
@@ -129,6 +129,12 @@ int main(int argc, char* argv[]) {
 
     while (running) {
         LAST = NOW;
+
+        // do some stuff before the frame delay
+        if (waitedTime == 0.0) { // makes sure this only runs once per frame
+            sortDrawOrder(&world, camera.position, 0, world.worldSize - 1);
+        }
+
         NOW = SDL_GetPerformanceCounter();
         deltaTime = (double)((NOW - LAST)*1000 / (double)SDL_GetPerformanceFrequency());
         // events and input
@@ -139,11 +145,15 @@ int main(int argc, char* argv[]) {
         }
 
         waitedTime += deltaTime;
-        pollInput(&player, deltaTime);
-        if (waitedTime > waitedTime) {
-            waitedTime = 0.0;
+
+        if (waitedTime < waitTime) {
+            SDL_Delay((uint32_t)((waitTime - waitedTime) * 1000));
             continue;
         }
+
+        waitedTime = 0.0;
+
+        pollInput(&player, deltaTime);
         vectorAdd(&player.rotation, &player.rotationDirection);
         
         {
@@ -164,9 +174,6 @@ int main(int argc, char* argv[]) {
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
-
-        // sort the models
-        sortDrawOrder(&world, camera.position, 0, world.worldSize - 1);
 
         for (int i = 0; i < world.worldSize; i++) {
             renderModel(renderer, &world.meshes[world.drawOrder[i]], camera, &assetManager);
