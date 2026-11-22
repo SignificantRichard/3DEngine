@@ -21,6 +21,7 @@
 #include "instances.h"
 #include "render.h"
 #include "ray.h"
+#include "sound.h"
 #include "../world/entry.h"
 
 #include "settings.h"

@@ -22,6 +22,9 @@ int initAudio(void);
 int destroyAudio(void);
 Sound loadSound(const char* filePath);
 void playSound(Sound* sound);
+void playSoundDirectional(Sound* sound,
+    float lx, float ly, float fx, float fy,
+    float sx, float sy, float max_dist);
 void destroySound(Sound* sound);
 
 #endif
