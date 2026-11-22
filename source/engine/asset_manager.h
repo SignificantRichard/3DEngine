@@ -2,7 +2,6 @@
 #define ASSET_MANAGER_H
 
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
 #include "image.h"
 
 typedef struct {
