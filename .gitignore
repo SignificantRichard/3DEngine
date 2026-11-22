@@ -1,19 +1,11 @@
-/build/*
-/source/res/images/*
-/source/res/raw_images/*
-/source/res/raw_sounds/*
-/source/res/sounds/*
-/source/res/models/*
-/source/res/raw_models/*
-/asset/*
-
-!/build
-!/source/res/images
-!/source/res/raw_images
-!/source/res/sounds
-!/source/res/models
-!/source/res/raw_models
-!/asset
+/build/**
+/source/res/images/**
+/source/res/raw_images/**
+/source/res/raw_sounds/**
+/source/res/sounds/**
+/source/res/models/**
+/source/res/raw_models/**
+/asset/**
 
 !/source/res/images/default.lif
 !/source/res/images/alternate.lif
