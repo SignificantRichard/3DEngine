@@ -17,7 +17,13 @@ struct SortedFace {
     int index;
     float depth;
     float x1, y1, x2, y2, x3, y3;
+    SDL_FPoint uv1, uv2, uv3;
 };
+
+typedef struct {
+    Vector pos;
+    UV uv;
+} ClipVertex;
 
 static Vector normalizeVec(Vector v) {
     float lenSq = dot(v, v);
@@ -230,38 +236,44 @@ int compareFaces(const void* a, const void* b) {
     return 0;
 }
 
-static Vector lerpCamVec(Vector a, Vector b, float nearZ) {
-    float denom = b.z - a.z;
+static ClipVertex lerpClipVertex(ClipVertex a, ClipVertex b, float nearZ) {
+    float denom = b.pos.z - a.pos.z;
     if (fabsf(denom) <= 1e-6f) {
         return a;
     }
-    float t = (nearZ - a.z) / denom;
-    return (Vector){
-        a.x + (b.x - a.x) * t,
-        a.y + (b.y - a.y) * t,
-        nearZ
+    float t = (nearZ - a.pos.z) / denom;
+    return (ClipVertex){
+        .pos = {
+            a.pos.x + (b.pos.x - a.pos.x) * t,
+            a.pos.y + (b.pos.y - a.pos.y) * t,
+            nearZ
+        },
+        .uv = {
+            a.uv.u + (b.uv.u - a.uv.u) * t,
+            a.uv.v + (b.uv.v - a.uv.v) * t
+        }
     };
 }
 
-static int clipTriangleNearPlane(Vector a, Vector b, Vector c, float nearZ, Vector outTris[2][3]) {
-    Vector poly[4];
+static int clipTriangleNearPlane(ClipVertex a, ClipVertex b, ClipVertex c, float nearZ, ClipVertex outTris[2][3]) {
+    ClipVertex poly[4];
     int polyCount = 0;
 
-    Vector src[3] = { a, b, c };
-    Vector prev = src[2];
-    bool prevInside = (prev.z >= nearZ);
+    ClipVertex src[3] = { a, b, c };
+    ClipVertex prev = src[2];
+    bool prevInside = (prev.pos.z >= nearZ);
 
     for (int i = 0; i < 3; i++) {
-        Vector curr = src[i];
-        bool currInside = (curr.z >= nearZ);
+        ClipVertex curr = src[i];
+        bool currInside = (curr.pos.z >= nearZ);
 
         if (currInside) {
             if (!prevInside) {
-                poly[polyCount++] = lerpCamVec(prev, curr, nearZ);
+                poly[polyCount++] = lerpClipVertex(prev, curr, nearZ);
             }
             poly[polyCount++] = curr;
         } else if (prevInside) {
-            poly[polyCount++] = lerpCamVec(prev, curr, nearZ);
+            poly[polyCount++] = lerpClipVertex(prev, curr, nearZ);
         }
 
         prev = curr;
@@ -303,9 +315,9 @@ static void computeTriplanarUVs(
     const Vector* c,
     const Vector* faceNormal,
     float scale,
-    SDL_FPoint* uvA,
-    SDL_FPoint* uvB,
-    SDL_FPoint* uvC
+    UV* uvA,
+    UV* uvB,
+    UV* uvC
 ) {
     float nx, ny, nz;
 
@@ -332,17 +344,17 @@ static void computeTriplanarUVs(
     float az = fabsf(nz);
 
     if (ax >= ay && ax >= az) {
-        *uvA = (SDL_FPoint){ a->z * scale, a->y * scale };
-        *uvB = (SDL_FPoint){ b->z * scale, b->y * scale };
-        *uvC = (SDL_FPoint){ c->z * scale, c->y * scale };
+        *uvA = (UV){ a->z * scale, a->y * scale };
+        *uvB = (UV){ b->z * scale, b->y * scale };
+        *uvC = (UV){ c->z * scale, c->y * scale };
     } else if (ay >= ax && ay >= az) {
-        *uvA = (SDL_FPoint){ a->x * scale, a->z * scale };
-        *uvB = (SDL_FPoint){ b->x * scale, b->z * scale };
-        *uvC = (SDL_FPoint){ c->x * scale, c->z * scale };
+        *uvA = (UV){ a->x * scale, a->z * scale };
+        *uvB = (UV){ b->x * scale, b->z * scale };
+        *uvC = (UV){ c->x * scale, c->z * scale };
     } else {
-        *uvA = (SDL_FPoint){ a->x * scale, a->y * scale };
-        *uvB = (SDL_FPoint){ b->x * scale, b->y * scale };
-        *uvC = (SDL_FPoint){ c->x * scale, c->y * scale };
+        *uvA = (UV){ a->x * scale, a->y * scale };
+        *uvB = (UV){ b->x * scale, b->y * scale };
+        *uvC = (UV){ c->x * scale, c->y * scale };
     }
 }
 
@@ -360,25 +372,41 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
     float centerX = INTERNAL_WIDTH / 2.0f;
     float centerY = INTERNAL_HEIGHT / 2.0f;
+    float fallbackUVScale = 1.0f;
 
     for (int i = 0; i < model->faceAmount; i++) {
-        Vector cA, cB, cC;
-        transformToCameraSpaceUnclipped(model->faces[i].a, model->position, model->rotation, camera, &cA);
-        transformToCameraSpaceUnclipped(model->faces[i].b, model->position, model->rotation, camera, &cB);
-        transformToCameraSpaceUnclipped(model->faces[i].c, model->position, model->rotation, camera, &cC);
-
+        const Face* face = &model->faces[i];
         const Vector* faceNormal = (model->normals != NULL) ? &model->normals[i] : NULL;
-        if (isFaceBackfacingCameraSpace(&model->faces[i], faceNormal, model->rotation, camera.rotation, cA)) {
+
+        Vector cA, cB, cC;
+        transformToCameraSpaceUnclipped(face->a, model->position, model->rotation, camera, &cA);
+        transformToCameraSpaceUnclipped(face->b, model->position, model->rotation, camera, &cB);
+        transformToCameraSpaceUnclipped(face->c, model->position, model->rotation, camera, &cC);
+
+        if (isFaceBackfacingCameraSpace(face, faceNormal, model->rotation, camera.rotation, cA)) {
             continue;
         }
 
-        Vector clipped[2][3];
-        int triCount = clipTriangleNearPlane(cA, cB, cC, NEAR_PLANE, clipped);
+        UV uvA, uvB, uvC;
+        if (face->hasUVs) {
+            uvA = face->uvA;
+            uvB = face->uvB;
+            uvC = face->uvC;
+        } else {
+            computeTriplanarUVs(face->a, face->b, face->c, faceNormal, fallbackUVScale, &uvA, &uvB, &uvC);
+        }
+
+        ClipVertex vA = { cA, uvA };
+        ClipVertex vB = { cB, uvB };
+        ClipVertex vC = { cC, uvC };
+
+        ClipVertex clipped[2][3];
+        int triCount = clipTriangleNearPlane(vA, vB, vC, NEAR_PLANE, clipped);
 
         for (int t = 0; t < triCount; t++) {
-            Vector p1 = clipped[t][0];
-            Vector p2 = clipped[t][1];
-            Vector p3 = clipped[t][2];
+            Vector p1 = clipped[t][0].pos;
+            Vector p2 = clipped[t][1].pos;
+            Vector p3 = clipped[t][2].pos;
 
             float avgDepth = (p1.z + p2.z + p3.z) / 3.0f;
 
@@ -400,7 +428,10 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
                 .depth = avgDepth,
                 .x1 = x1, .y1 = y1,
                 .x2 = x2, .y2 = y2,
-                .x3 = x3, .y3 = y3
+                .x3 = x3, .y3 = y3,
+                .uv1 = { clipped[t][0].uv.u, clipped[t][0].uv.v },
+                .uv2 = { clipped[t][1].uv.u, clipped[t][1].uv.v },
+                .uv3 = { clipped[t][2].uv.u, clipped[t][2].uv.v }
             };
         }
     }
@@ -424,7 +455,6 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     }
 
     SDL_Texture* texture = assetManager->textures[lookForImageAsset(assetManager, model->texture)].texture;
-    float uvScale = 1.0f;
 
     Vector lightDir = { -0.5f, 0.8f, -0.3f }; // Points toward the light source
     float ambient = 0.2f;
@@ -435,15 +465,12 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
         const Face* face = &model->faces[faceIdx];
         const Vector* faceNormal = (model->normals != NULL) ? &model->normals[faceIdx] : NULL;
 
-        SDL_FPoint uvA, uvB, uvC;
-        computeTriplanarUVs(face->a, face->b, face->c, faceNormal, uvScale, &uvA, &uvB, &uvC);
-
         float b = computeFaceBrightness(face, faceNormal, model->rotation, lightDir, ambient);
         SDL_FColor faceColor = { b, b, b, 1.0f };
 
-        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, faceColor, uvA };
-        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, faceColor, uvB };
-        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, faceColor, uvC };
+        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, faceColor, sortedFaces[i].uv1 };
+        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, faceColor, sortedFaces[i].uv2 };
+        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, faceColor, sortedFaces[i].uv3 };
 
         indices[base + 0] = base + 0;
         indices[base + 1] = base + 1;

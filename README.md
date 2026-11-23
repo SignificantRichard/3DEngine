@@ -12,6 +12,9 @@ Some goofy engine I wrote with the scraps of the 2.5D engine.
 * gcc/clang
 * SDL3
 
+## Recommendations
+* Blender for modeling (Export as .obj for proper UVs)
+
 ## Windows
 Compiling for Windows sucks. Use mingw if you don't want to lose your mind.
 SDL will also have to linked when generating cmake files so good luck.
@@ -19,7 +22,6 @@ SDL will also have to linked when generating cmake files so good luck.
 ## Misc
 * This engine has no depth buffer. Can be approximated by adding a depth variable on the faces of a mesh.
 * No scene culling (yet.)
-* Texture mapping does not exist. Too lazy for that.
 * Will be Unix first because testing this on Windows has lost me hairs.
 
 ## Also see:

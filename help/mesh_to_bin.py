@@ -18,6 +18,13 @@ def convert_model(input_path, output_path):
     faces = np.asarray(mesh.faces, dtype=np.uint16)
     face_normals = np.asarray(mesh.face_normals, dtype=np.float64)
 
+    has_uvs = (
+        hasattr(mesh, "visual")
+        and hasattr(mesh.visual, "uv")
+        and mesh.visual.uv is not None
+        and len(mesh.visual.uv) == len(vertices)
+    )
+
     min_val = vertices.min()
     max_val = vertices.max()
     if max_val != min_val:
@@ -31,11 +38,16 @@ def convert_model(input_path, output_path):
     num_verts = len(vertices)
     num_faces = len(faces)
 
-    # Header: 2 bytes vertex count, 2 bytes face count, 4 bytes padding (Little-endian)
+    flags = 0x01  # bit 0: has face normals
+    if has_uvs:
+        flags |= 0x02  # bit 1: has per-face corner UVs
+
+    # Header: 2 bytes vertex count, 2 bytes face count, 1 byte flags, 3 bytes padding (Little-endian)
     header = bytearray()
     header.extend(struct.pack("<H", num_verts))
     header.extend(struct.pack("<H", num_faces))
-    header.extend(b"\x00\x00\x00\x00")
+    header.append(flags)
+    header.extend(b"\x00\x00\x00")
 
     vert_data = bytearray()
     for v in scaled_verts:
@@ -49,14 +61,26 @@ def convert_model(input_path, output_path):
     for n in scaled_normals:
         normal_data.extend(struct.pack("<3h", int(n[0]), int(n[1]), int(n[2])))
 
+    uv_data = bytearray()
+    if has_uvs:
+        uvs = np.asarray(mesh.visual.uv, dtype=np.float32)
+        for f in faces:
+            for idx in f:
+                u = float(uvs[idx][0])
+                # Flip V for top-left texture origin (SDL); remove `1.0 -` if your .lif loader uses bottom-left
+                v = 1.0 - float(uvs[idx][1])
+                uv_data.extend(struct.pack("<ff", u, v))
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(header)
         f.write(vert_data)
         f.write(face_data)
         f.write(normal_data)
+        if has_uvs:
+            f.write(uv_data)
 
-    print(f"Converted: {input_path} -> {output_path} ({num_verts} verts, {num_faces} faces)")
+    print(f"Converted: {input_path} -> {output_path} ({num_verts} verts, {num_faces} faces, UVs: {has_uvs})")
 
 
 def main():

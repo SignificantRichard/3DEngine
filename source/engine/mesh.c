@@ -1,5 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #include "face.h"
 #include "vector.h"
@@ -8,6 +11,19 @@
 
 #define RESIZE_MULT 0.0001f
 #define NORMAL_INV_SCALE (1.0f / 32767.0f)
+
+#define MDL_FLAG_NORMALS 0x01
+#define MDL_FLAG_UVS     0x02
+
+static float readFloatLE(const uint8_t* ptr) {
+    uint32_t bits = (uint32_t)ptr[0]
+                  | ((uint32_t)ptr[1] << 8)
+                  | ((uint32_t)ptr[2] << 16)
+                  | ((uint32_t)ptr[3] << 24);
+    float val;
+    memcpy(&val, &bits, sizeof(float));
+    return val;
+}
 
 static Vector computeFaceNormal(Face f) {
     // Edge 1 = B - A, Edge 2 = C - A
@@ -80,6 +96,7 @@ Mesh createMesh() {
     m.texture = "./source/res/images/default.lif";
     m.position = blankVector();
     m.rotation = blankVector();
+    m.scale = 1.0f;
     m.collision = 0;
     return m;
 }
@@ -107,6 +124,11 @@ void calculateMeshNormals(Mesh* m) {
 void addFaceToMesh(Mesh* m, Face* f) {
     // squash uses existing vector
     Face newFace;
+    newFace.uvA = f->uvA;
+    newFace.uvB = f->uvB;
+    newFace.uvC = f->uvC;
+    newFace.hasUVs = f->hasUVs;
+
     int facesSelected = 0;
 
     for (int i = 0; i < m->vectorAmount; i++) {
@@ -177,9 +199,18 @@ Mesh loadMeshFromBin(const char* filename) {
 
     uint16_t vertexAmount = ptr[0] | (ptr[1] << 8);
     uint16_t faceAmount = ptr[2] | (ptr[3] << 8);
+    uint8_t flags = ptr[4];
     ptr += 8;
 
-    size_t expectedSizeWithNormals = 8 + (size_t)vertexAmount * 6 + (size_t)faceAmount * 6 + (size_t)faceAmount * 6;
+    size_t baseSize = 8 + (size_t)vertexAmount * 6 + (size_t)faceAmount * 6;
+    size_t normalsBytes = (size_t)faceAmount * 6;
+    size_t uvBytes = (size_t)faceAmount * 24; // 3 corners * 2 floats (4 bytes each)
+
+    if (fileData.size < baseSize) {
+        fprintf(stderr, "Error: Truncated mesh file: %s\n", filename);
+        free(fileData.content);
+        return mesh;
+    }
 
     resizeVectorArray(&mesh, vertexAmount);
     for (int i = 0; i < vertexAmount; i++) {
@@ -203,12 +234,19 @@ Mesh loadMeshFromBin(const char* filename) {
         f.a = &mesh.vectors[idxA];
         f.b = &mesh.vectors[idxB];
         f.c = &mesh.vectors[idxC];
+        f.uvA = (UV){ 0.0f, 0.0f };
+        f.uvB = (UV){ 0.0f, 0.0f };
+        f.uvC = (UV){ 0.0f, 0.0f };
+        f.hasUVs = false;
         
         mesh.faces[i] = f;
     }
 
-    // Read face normals if present in the binary file, otherwise compute them
-    if (fileData.size >= expectedSizeWithNormals) {
+    // Support both flagged files and legacy unflagged files that included normals
+    bool hasNormals = (flags & MDL_FLAG_NORMALS) || (flags == 0 && fileData.size >= baseSize + normalsBytes);
+    size_t currentOffset = baseSize;
+
+    if (hasNormals && fileData.size >= currentOffset + normalsBytes) {
         for (int i = 0; i < faceAmount; i++) {
             int16_t nx = (int16_t)(ptr[0] | (ptr[1] << 8));
             int16_t ny = (int16_t)(ptr[2] | (ptr[3] << 8));
@@ -221,12 +259,30 @@ Mesh loadMeshFromBin(const char* filename) {
                 (float)nz * NORMAL_INV_SCALE
             );
         }
+        currentOffset += normalsBytes;
     } else {
         calculateMeshNormals(&mesh);
     }
 
+    // Read per-face corner UVs if present
+    bool loadedUVs = false;
+    if ((flags & MDL_FLAG_UVS) && fileData.size >= currentOffset + uvBytes) {
+        for (int i = 0; i < faceAmount; i++) {
+            mesh.faces[i].uvA.u = readFloatLE(ptr + 0);
+            mesh.faces[i].uvA.v = readFloatLE(ptr + 4);
+            mesh.faces[i].uvB.u = readFloatLE(ptr + 8);
+            mesh.faces[i].uvB.v = readFloatLE(ptr + 12);
+            mesh.faces[i].uvC.u = readFloatLE(ptr + 16);
+            mesh.faces[i].uvC.v = readFloatLE(ptr + 20);
+            mesh.faces[i].hasUVs = true;
+            ptr += 24;
+        }
+        loadedUVs = true;
+    }
+
     free(fileData.content);
 
-    printf("Successfully loaded mesh: %d vertices, %d faces\n", vertexAmount, faceAmount);
+    printf("Successfully loaded mesh: %d vertices, %d faces (UVs: %s)\n",
+           vertexAmount, faceAmount, loadedUVs ? "yes" : "triplanar fallback");
     return mesh;
 }
