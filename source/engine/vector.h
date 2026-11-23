@@ -19,6 +19,10 @@ int vectorEquals(Vector v1, Vector v2);
 void vectorAdd(Vector* v, Vector* a);
 void vectorSub(Vector* v, Vector* a);
 
+Vector lookVector(Vector rot);
+Vector rightVector(Vector rot);
+Vector upVector(Vector rot);
+
 float vectorMag(Vector v, Vector a);
 
 float dot(Vector a, Vector b);

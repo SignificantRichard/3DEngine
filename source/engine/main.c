@@ -9,6 +9,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_mouse.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
@@ -26,28 +27,28 @@
 
 #include "settings.h"
 
-int pollInput(Body* body, float delta) {
+void pollInput(Body* body, float delta) {
     const bool *keyStates = SDL_GetKeyboardState(NULL);
     Vector localMovementDirection = blankVector();
 
     if (keyStates[SDL_SCANCODE_W]) {
-        localMovementDirection.z += 1;
+        localMovementDirection.z += 1.0f;
     }
     if (keyStates[SDL_SCANCODE_S]) {
-        localMovementDirection.z -= 1;
+        localMovementDirection.z -= 1.0f;
     }
     if (keyStates[SDL_SCANCODE_A]) {
-        localMovementDirection.x -= 1;
+        localMovementDirection.x -= 1.0f;
     }
     if (keyStates[SDL_SCANCODE_D]) {
-        localMovementDirection.x += 1;
+        localMovementDirection.x += 1.0f;
     }
 
-    if (keyStates[SDL_SCANCODE_SPACE]) {
-        localMovementDirection.y -= 1;
+    if (keyStates[SDL_SCANCODE_SPACE] && body->touchingGround) {
+        body->velocity.y = JUMP_POWER;
     }
     if (keyStates[SDL_SCANCODE_LCTRL]) {
-        localMovementDirection.y += 1;
+        // localMovementDirection.y -= 1;
     }
 
     if (keyStates[SDL_SCANCODE_0]) {
@@ -56,36 +57,42 @@ int pollInput(Body* body, float delta) {
     }
 
     if (keyStates[SDL_SCANCODE_9]) {
-        body->position = createVector(99999999,99999999,99999999);
+        body->position = createVector(99999.9f,0,99999.9f);
         body->rotation = blankVector();
     }
 
-
-    float speed = 0.02f;
+    float speed = WALK_SPEED;
     if (keyStates[SDL_SCANCODE_LSHIFT]) {
-        speed = 0.5f;
+        speed = RUN_SPEED;
     }
 
     linearMult(&localMovementDirection, delta * speed);
     body->movementDirection = localMovementDirection;
 
+    // backup
     localMovementDirection = blankVector();
+    // mouse movement
+    Vector mouseDelta = blankVector();
+
+    SDL_GetRelativeMouseState(&mouseDelta.y, &mouseDelta.x);
 
     if (keyStates[SDL_SCANCODE_UP]) {
-        localMovementDirection.x += 1;
+        localMovementDirection.x -= 1.0f;
     }
     if (keyStates[SDL_SCANCODE_DOWN]) {
-        localMovementDirection.x -= 1;
+        localMovementDirection.x += 1.0f;
     }
     if (keyStates[SDL_SCANCODE_LEFT]) {
-        localMovementDirection.y -= 1;
+        localMovementDirection.y -= 1.0f;
     }
     if (keyStates[SDL_SCANCODE_RIGHT]) {
-        localMovementDirection.y += 1;
+        localMovementDirection.y += 1.0f;
     }
     
-    linearMult(&localMovementDirection, delta * 0.01f);
+    linearMult(&localMovementDirection, delta * 0.0025f);
+    linearMult(&mouseDelta, delta * 0.025f);
     body->rotationDirection = localMovementDirection;
+    vectorAdd(&body->rotation, &mouseDelta);
 }
 
 int main(int argc, char* argv[]) {
@@ -102,6 +109,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // set mouse lock
+    SDL_SetWindowRelativeMouseMode(window, 1);
+
     bool running = true;
     SDL_Event event;
 
@@ -109,19 +119,23 @@ int main(int argc, char* argv[]) {
 
     World world = createWorld();
     
-    loadAndAddModel(&world, "./source/res/models/./cube.mdl");
+    loadAndAddModel(&world, "./source/res/models/plane.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
     world.meshes[0].texture = "./source/res/images/alternate.lif";
+    world.meshes[0].collision = 1;
+    loadAndAddModel(&world, "./source/res/models/sword.mdl");
 
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 
-    world.meshes[0].position = (Vector){ 0.0f, 0.0f, 20.0f };
+    world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
+    rescaleMesh(&world.meshes[0], 50.0f);
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
     uint64_t NOW = SDL_GetPerformanceCounter();
     uint64_t LAST = 0;
     double deltaTime = 0.0;
+    double tDeltaTime = 0.0;
 
     double waitTime = frameRate;
     double waitedTime = 0.0;
@@ -138,6 +152,7 @@ int main(int argc, char* argv[]) {
 
         NOW = SDL_GetPerformanceCounter();
         deltaTime = (double)((NOW - LAST)*1000 / (double)SDL_GetPerformanceFrequency());
+        tDeltaTime += deltaTime;
         // events and input
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
@@ -149,20 +164,36 @@ int main(int argc, char* argv[]) {
 
         if (waitedTime < waitTime) {
             SDL_Delay((uint32_t)((waitTime - waitedTime) * 1000));
-            continue;
+            continue; // doesn't allow rendering until frame time is done
         }
 
         waitedTime = 0.0;
 
-        pollInput(&player, deltaTime);
+        pollInput(&player, tDeltaTime);
         vectorAdd(&player.rotation, &player.rotationDirection);
-        
+
+        { // gravity logic
+            RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), &world);
+            if (!ray.hit) {
+                // player.position.y -= 0.005f;
+                player.velocity.y -= 0.0001f * tDeltaTime;
+                player.touchingGround = 0;
+            } else {
+                if (player.velocity.y <= 0.0f) {
+                    player.position.y = ray.position.y + 9.99f;
+                    player.velocity.y = 0;
+                    player.touchingGround = 1;
+                }
+            }
+        }
+
         {
             Vector localMovementDirection = blankVector();
             localMovementDirection.z = cosf(player.rotation.y) * player.movementDirection.z + sinf(player.rotation.y) * -player.movementDirection.x;
             localMovementDirection.x = cosf(player.rotation.y) * player.movementDirection.x + sinf(player.rotation.y) * player.movementDirection.z;
             localMovementDirection.y = player.movementDirection.y;
             vectorAdd(&player.position, &localMovementDirection);
+            vectorAdd(&player.position, &player.velocity);
             camera.position = player.position;
         }
 
@@ -173,7 +204,19 @@ int main(int argc, char* argv[]) {
         }
         camera.rotation = player.rotation;
 
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        { // player element
+            Vector lVector = lookVector(camera.rotation);
+            linearMult(&lVector, 3.0f);
+            world.meshes[1].position = lVector;
+            Vector rVector = rightVector(camera.rotation);
+            linearMult(&rVector, 2.5f);
+            vectorAdd(&world.meshes[1].position, &rVector);
+            vectorAdd(&world.meshes[1].position, &camera.position);
+            world.meshes[1].rotation = camera.rotation;
+        }
+
+
+        SDL_SetRenderDrawColor(renderer, SKY_COLOR, 255);
         SDL_RenderClear(renderer);
 
         for (int i = 0; i < world.worldSize; i++) {
@@ -183,6 +226,8 @@ int main(int argc, char* argv[]) {
         SDL_RenderPresent(renderer);
 
         tick++;
+
+        tDeltaTime = 0.0;
     }
 
     SDL_DestroyRenderer(renderer);

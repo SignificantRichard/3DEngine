@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "vector.h"
 
+#define PI 3.14159265359
+
 Vector createVector(float x, float y, float z) {
     Vector v = { .x = x, .y = y, .z = z } ;
     return v;
@@ -66,7 +68,41 @@ Vector cross(Vector a, Vector b) {
 
     out.x = a.y * b.z - a.z * b.y;
     out.y = a.z * b.x - a.x * b.z;
-    out.z = a.x * b.y - a.y * b.y;
+    out.z = a.x * b.y - a.y * b.x;
     
     return out;
+}
+
+Vector lookVector(Vector rot) {
+    float cosPitch = cosf(rot.x);
+    float sinPitch = sinf(rot.x);
+    float cosYaw   = cosf(rot.y);
+    float sinYaw   = sinf(rot.y);
+
+    float x = cosPitch * sinYaw;
+    float y = -sinPitch;
+    float z = cosPitch * cosYaw;
+
+    return createVector(x, y, z);
+}
+
+Vector rightVector(Vector rot) {
+    Vector rightRot = rot;
+    rightRot.x = 0.0f;
+    rightRot.y += PI * 0.5f;
+    return lookVector(rightRot);
+}
+
+Vector upVector(Vector rot) {
+    float upPitch = rot.x - (PI * 0.5f);
+    float cosUpPitch = cosf(upPitch);
+    float sinUpPitch = sinf(upPitch);
+    float cosYaw     = cosf(rot.y);
+    float sinYaw     = sinf(rot.y);
+
+    float x = cosUpPitch * sinYaw;
+    float y = -sinUpPitch;
+    float z = cosUpPitch * cosYaw;
+
+    return createVector(x, y, z);
 }

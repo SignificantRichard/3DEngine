@@ -80,6 +80,7 @@ Mesh createMesh() {
     m.texture = "./source/res/images/default.lif";
     m.position = blankVector();
     m.rotation = blankVector();
+    m.collision = 0;
     return m;
 }
 

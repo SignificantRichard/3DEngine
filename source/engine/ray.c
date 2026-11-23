@@ -1,10 +1,45 @@
 #include <float.h>
 #include <math.h>
+#include <stdio.h>
 #include "ray.h"
 #include "vector.h"
 #include "mesh.h"
 #include "world.h"
 #include "face.h"
+
+static Vector rotatePointXYZ(Vector v, Vector rot) {
+    float cx = cosf(rot.x), sx = sinf(rot.x);
+    float cy = cosf(rot.y), sy = sinf(rot.y);
+    float cz = cosf(rot.z), sz = sinf(rot.z);
+
+    // Rotate around X axis
+    float y1 = v.y * cx - v.z * sx;
+    float z1 = v.y * sx + v.z * cx;
+    float x1 = v.x;
+
+    // Rotate around Y axis
+    float x2 = x1 * cy + z1 * sy;
+    float z2 = -x1 * sy + z1 * cy;
+    float y2 = y1;
+
+    // Rotate around Z axis
+    Vector out;
+    out.x = x2 * cz - y2 * sz;
+    out.y = x2 * sz + y2 * cz;
+    out.z = z2;
+    return out;
+}
+
+static Vector normalizeVec(Vector v) {
+    float lenSq = dot(v, v);
+    if (lenSq <= 1e-12f) {
+        return blankVector();
+    }
+    float invLen = 1.0f / sqrtf(lenSq);
+    Vector out = v;
+    linearMult(&out, invLen);
+    return out;
+}
 
 RaycastResult raycast(Vector origin, Vector direction, World* world) {
     RaycastResult r = {
@@ -15,20 +50,32 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
 
     const float EPSILON = 1e-6f;
 
+    float maxDist = sqrtf(dot(direction, direction));
+    if (maxDist <= EPSILON) {
+        return r;
+    }
+    Vector rayDir = normalizeVec(direction);
+
     for (int i = 0; i < world->worldSize; i++) {
         Mesh mesh = world->meshes[i];
+
+        if (!mesh.collision) {
+            continue;
+        }
+        
         Vector meshPos = mesh.position;
+        Vector meshRot = mesh.rotation;
 
         for (int j = 0; j < mesh.faceAmount; j++) {
             Face face = mesh.faces[j];
 
-            Vector a = *face.a;
+            Vector a = rotatePointXYZ(*face.a, meshRot);
             vectorAdd(&a, &meshPos);
 
-            Vector b = *face.b;
+            Vector b = rotatePointXYZ(*face.b, meshRot);
             vectorAdd(&b, &meshPos);
 
-            Vector c = *face.c;
+            Vector c = rotatePointXYZ(*face.c, meshRot);
             vectorAdd(&c, &meshPos);
 
             Vector edge1 = b;
@@ -37,7 +84,7 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
             Vector edge2 = c;
             vectorSub(&edge2, &a);
 
-            Vector p = cross(direction, edge2);
+            Vector p = cross(rayDir, edge2);
             float det = dot(edge1, p);
 
             if (fabsf(det) < EPSILON) {
@@ -55,25 +102,22 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
             }
 
             Vector q = cross(tVec, edge1);
-            float v = dot(direction, q) * invDet;
+            float v = dot(rayDir, q) * invDet;
             if (v < 0.0f || u + v > 1.0f) {
                 continue;
             }
 
-            // t is normalized to the length of `direction` (0 = origin, 1 = end)
             float t = dot(edge2, q) * invDet;
-            if (t <= EPSILON || t > 1.0f) {
+            if (t <= EPSILON || t > maxDist) {
                 continue;
             }
 
-            Vector offset = direction;
-            linearMult(&offset, t);
-            double worldDist = (double)sqrtf(dot(offset, offset));
-
-            if (worldDist < r.distance) {
-                r.distance = worldDist;
+            if ((double)t < r.distance) {
+                r.distance = (double)t;
                 r.hit = 1;
 
+                Vector offset = rayDir;
+                linearMult(&offset, t);
                 r.position = origin;
                 vectorAdd(&r.position, &offset);
             }

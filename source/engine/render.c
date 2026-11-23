@@ -217,7 +217,7 @@ bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camer
     float centerY = INTERNAL_HEIGHT / 2.0f;
 
     *x = (nv.x / nv.z) * fovScale + centerX;
-    *y = (nv.y / nv.z) * fovScale + centerY;
+    *y = centerY - (nv.y / nv.z) * fovScale;
 
     return true;
 }
@@ -383,13 +383,13 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
             float avgDepth = (p1.z + p2.z + p3.z) / 3.0f;
 
             float x1 = (p1.x / p1.z) * fovScale + centerX;
-            float y1 = (p1.y / p1.z) * fovScale + centerY;
+            float y1 = centerY - (p1.y / p1.z) * fovScale;
 
             float x2 = (p2.x / p2.z) * fovScale + centerX;
-            float y2 = (p2.y / p2.z) * fovScale + centerY;
+            float y2 = centerY - (p2.y / p2.z) * fovScale;
 
             float x3 = (p3.x / p3.z) * fovScale + centerX;
-            float y3 = (p3.y / p3.z) * fovScale + centerY;
+            float y3 = centerY - (p3.y / p3.z) * fovScale;
 
             if (!isTriangleOnScreen(x1, y1, x2, y2, x3, y3)) {
                 continue;
@@ -426,7 +426,7 @@ void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, Asse
     SDL_Texture* texture = assetManager->textures[lookForImageAsset(assetManager, model->texture)].texture;
     float uvScale = 1.0f;
 
-    Vector lightDir = { -0.5f, -0.8f, -0.3f }; // Points toward the light source
+    Vector lightDir = { -0.5f, 0.8f, -0.3f }; // Points toward the light source
     float ambient = 0.2f;
 
     int base = 0;

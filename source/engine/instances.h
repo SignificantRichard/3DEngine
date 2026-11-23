@@ -13,6 +13,9 @@ typedef struct {
     Vector position;
     Vector rotation;
     Vector rotationDirection;
+    Vector velocity;
+    int touchingGround;
+    float hipHeight;
 } Body;
 
 #endif

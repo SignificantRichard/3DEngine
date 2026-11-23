@@ -14,6 +14,7 @@ typedef struct {
     Vector position;
     Vector rotation;
     float scale;
+    int collision;
 } Mesh;
 
 Mesh createMesh();
