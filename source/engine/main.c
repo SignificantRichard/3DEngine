@@ -121,13 +121,17 @@ int main(int argc, char* argv[]) {
     
     loadAndAddModel(&world, "./source/res/models/plane.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
-    world.meshes[0].texture = "./source/res/images/alternate.lif";
-    world.meshes[0].collision = 1;
     loadAndAddModel(&world, "./source/res/models/sword.mdl");
+    loadAndAddModel(&world, "./source/res/models/cube.mdl");
+    world.meshes[0].texture = "./source/res/images/alternate.lif";
+    world.meshes[2].texture = "./source/res/images/alternate.lif";
+    world.meshes[0].collision = 1;
+    world.meshes[2].collision = 1;
 
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
 
     world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
+    world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
     rescaleMesh(&world.meshes[0], 50.0f);
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
@@ -180,20 +184,40 @@ int main(int argc, char* argv[]) {
                 player.touchingGround = 0;
             } else {
                 if (player.velocity.y <= 0.0f) {
-                    player.position.y = ray.position.y + 9.99f;
+                    if (ray.distance > 0.8f) { // for stairs
+                        player.position.y = ray.position.y + 9.99f;
+                    }
                     player.velocity.y = 0;
                     player.touchingGround = 1;
                 }
             }
         }
 
-        {
+        { // movement direction
             Vector localMovementDirection = blankVector();
             localMovementDirection.z = cosf(player.rotation.y) * player.movementDirection.z + sinf(player.rotation.y) * -player.movementDirection.x;
             localMovementDirection.x = cosf(player.rotation.y) * player.movementDirection.x + sinf(player.rotation.y) * player.movementDirection.z;
             localMovementDirection.y = player.movementDirection.y;
-            vectorAdd(&player.position, &localMovementDirection);
-            vectorAdd(&player.position, &player.velocity);
+            
+            // project collision rays
+            Vector step = localMovementDirection;
+            vectorAdd(&localMovementDirection, &player.velocity);
+            RaycastResult ray = raycast(player.position, step, &world);
+            
+            if (!ray.hit) {
+                vectorAdd(&player.position, &localMovementDirection);
+                vectorAdd(&player.position, &player.velocity);
+            } else { // touching wall. slide now
+                // snap to x units away from wall
+                for (int i = 0; i < 5; i++) {
+                    vectorAdd(&player.position, &ray.normal);
+                }
+                linearMult(&ray.normal, vectorMag(step, blankVector()));
+                vectorAdd(&localMovementDirection, &ray.normal);
+                vectorAdd(&player.position, &localMovementDirection);
+                vectorAdd(&player.position, &player.velocity);
+            }
+            
             camera.position = player.position;
         }
 

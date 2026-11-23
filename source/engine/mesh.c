@@ -25,7 +25,7 @@ static float readFloatLE(const uint8_t* ptr) {
     return val;
 }
 
-static Vector computeFaceNormal(Face f) {
+Vector computeFaceNormal(Face f) {
     // Edge 1 = B - A, Edge 2 = C - A
     float ux = f.b->x - f.a->x;
     float uy = f.b->y - f.a->y;
@@ -122,7 +122,6 @@ void calculateMeshNormals(Mesh* m) {
 }
 
 void addFaceToMesh(Mesh* m, Face* f) {
-    // squash uses existing vector
     Face newFace;
     newFace.uvA = f->uvA;
     newFace.uvB = f->uvB;
@@ -222,7 +221,7 @@ Mesh loadMeshFromBin(const char* filename) {
         mesh.vectors[i] = createVector((float)x * RESIZE_MULT, (float)y * RESIZE_MULT, (float)z * RESIZE_MULT);
     }
 
-    // Each face is 3 * uint16_t indices (6 bytes total)
+    
     resizeFaceArray(&mesh, faceAmount);
     for (int i = 0; i < faceAmount; i++) {
         uint16_t idxA = ptr[0] | (ptr[1] << 8);
@@ -242,7 +241,7 @@ Mesh loadMeshFromBin(const char* filename) {
         mesh.faces[i] = f;
     }
 
-    // Support both flagged files and legacy unflagged files that included normals
+    
     bool hasNormals = (flags & MDL_FLAG_NORMALS) || (flags == 0 && fileData.size >= baseSize + normalsBytes);
     size_t currentOffset = baseSize;
 

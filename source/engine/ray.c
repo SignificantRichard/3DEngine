@@ -44,6 +44,7 @@ static Vector normalizeVec(Vector v) {
 RaycastResult raycast(Vector origin, Vector direction, World* world) {
     RaycastResult r = {
         .position = blankVector(),
+        .normal = blankVector(),
         .distance = FLT_MAX,
         .hit = 0
     };
@@ -115,6 +116,7 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
             if ((double)t < r.distance) {
                 r.distance = (double)t;
                 r.hit = 1;
+                r.normal = computeFaceNormal(face);
 
                 Vector offset = rayDir;
                 linearMult(&offset, t);

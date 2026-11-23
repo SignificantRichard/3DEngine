@@ -6,6 +6,7 @@
 
 typedef struct {
     Vector position;
+    Vector normal;
     double distance;
     int hit;
 } RaycastResult;
