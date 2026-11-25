@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <stdio.h>
+#include <float.h>
 #include "image.h"
 #include "asset_manager.h"
 #include "mesh.h"
@@ -23,13 +24,26 @@
 #include "render.h"
 #include "ray.h"
 #include "sound.h"
+#include "controller.h"
 #include "../world/entry.h"
 
 #include "settings.h"
 
-void pollInput(Body* body, float delta) {
+static Vector rotateXZ(Vector v, float angleRad) {
+    float c = cosf(angleRad);
+    float s = sinf(angleRad);
+    return createVector(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+}
+
+void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     const bool *keyStates = SDL_GetKeyboardState(NULL);
     Vector localMovementDirection = blankVector();
+
+    ControllerOutput output = {0};
+
+    getGamepadInputs(&output, gamepad);
+    localMovementDirection.x = output.left.x / 0xffff;
+    localMovementDirection.z = output.left.y / -0xffff;
 
     if (keyStates[SDL_SCANCODE_W]) {
         localMovementDirection.z += 1.0f;
@@ -44,12 +58,12 @@ void pollInput(Body* body, float delta) {
         localMovementDirection.x += 1.0f;
     }
 
-    if (keyStates[SDL_SCANCODE_SPACE] && body->touchingGround) {
+    if ((keyStates[SDL_SCANCODE_SPACE] || decodeButtonState(&output, SDL_GAMEPAD_BUTTON_SOUTH)) && body->touchingGround) {
         body->velocity.y = JUMP_POWER;
     }
-    if (keyStates[SDL_SCANCODE_LCTRL]) {
-        // localMovementDirection.y -= 1;
-    }
+    // if (keyStates[SDL_SCANCODE_LCTRL]) {
+    //     // localMovementDirection.y -= 1;
+    // }
 
     if (keyStates[SDL_SCANCODE_0]) {
         body->position = blankVector();
@@ -57,7 +71,7 @@ void pollInput(Body* body, float delta) {
     }
 
     if (keyStates[SDL_SCANCODE_9]) {
-        body->position = createVector(99999.9f,0,99999.9f);
+        body->position = createVector(999999.0f, 999999.0f, 999999.0f);
         body->rotation = blankVector();
     }
 
@@ -75,6 +89,8 @@ void pollInput(Body* body, float delta) {
     Vector mouseDelta = blankVector();
 
     SDL_GetRelativeMouseState(&mouseDelta.y, &mouseDelta.x);
+    localMovementDirection.y = output.right.x / 0xffff;
+    localMovementDirection.x = output.right.y / 0xffff;
 
     if (keyStates[SDL_SCANCODE_UP]) {
         localMovementDirection.x -= 1.0f;
@@ -96,7 +112,7 @@ void pollInput(Body* body, float delta) {
 }
 
 int main(int argc, char* argv[]) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
         return 1;
     }
@@ -113,13 +129,12 @@ int main(int argc, char* argv[]) {
     SDL_SetWindowRelativeMouseMode(window, 1);
 
     bool running = true;
-    SDL_Event event;
 
     AssetManager assetManager = createAssetManager(renderer);
 
     World world = createWorld();
     
-    loadAndAddModel(&world, "./source/res/models/plane.mdl");
+    loadAndAddModel(&world, "./source/res/models/e1m1.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
     loadAndAddModel(&world, "./source/res/models/sword.mdl");
     loadAndAddModel(&world, "./source/res/models/cube.mdl");
@@ -132,9 +147,11 @@ int main(int argc, char* argv[]) {
 
     world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
     world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
-    rescaleMesh(&world.meshes[0], 50.0f);
+    rescaleMesh(&world.meshes[0], 100.0f);
 
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
+
+    SDL_Gamepad* gamepad = NULL;
 
     uint64_t NOW = SDL_GetPerformanceCounter();
     uint64_t LAST = 0;
@@ -158,10 +175,28 @@ int main(int argc, char* argv[]) {
         deltaTime = (double)((NOW - LAST)*1000 / (double)SDL_GetPerformanceFrequency());
         tDeltaTime += deltaTime;
         // events and input
+        SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
+
+            switch (event.type) {
+                case SDL_EVENT_QUIT:
+                    running = false;
+                    break;
+                case SDL_EVENT_GAMEPAD_ADDED:
+                    printf("Gamepad added (id=%u)\n", (unsigned)event.gdevice.which);
+                    fflush(stdout);
+                    if (!gamepad) {
+                        gamepad = SDL_OpenGamepad(event.gdevice.which);
+                    }
+                    break;
+                case SDL_EVENT_GAMEPAD_REMOVED:
+                    if (gamepad && event.gdevice.which == SDL_GetGamepadID(gamepad)) {
+                        SDL_CloseGamepad(gamepad);
+                        gamepad = getGamepad();
+                    }
+                    break;
             }
+
         }
 
         waitedTime += deltaTime;
@@ -172,9 +207,6 @@ int main(int argc, char* argv[]) {
         }
 
         waitedTime = 0.0;
-
-        pollInput(&player, tDeltaTime);
-        vectorAdd(&player.rotation, &player.rotationDirection);
 
         { // gravity logic
             RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), &world);
@@ -194,31 +226,130 @@ int main(int argc, char* argv[]) {
         }
 
         { // movement direction
-            Vector localMovementDirection = blankVector();
-            localMovementDirection.z = cosf(player.rotation.y) * player.movementDirection.z + sinf(player.rotation.y) * -player.movementDirection.x;
-            localMovementDirection.x = cosf(player.rotation.y) * player.movementDirection.x + sinf(player.rotation.y) * player.movementDirection.z;
-            localMovementDirection.y = player.movementDirection.y;
-            
-            // project collision rays
-            Vector step = localMovementDirection;
-            vectorAdd(&localMovementDirection, &player.velocity);
-            RaycastResult ray = raycast(player.position, step, &world);
-            
-            if (!ray.hit) {
-                vectorAdd(&player.position, &localMovementDirection);
-                vectorAdd(&player.position, &player.velocity);
-            } else { // touching wall. slide now
-                // snap to x units away from wall
-                for (int i = 0; i < 5; i++) {
-                    vectorAdd(&player.position, &ray.normal);
-                }
-                linearMult(&ray.normal, vectorMag(step, blankVector()));
-                vectorAdd(&localMovementDirection, &ray.normal);
-                vectorAdd(&player.position, &localMovementDirection);
-                vectorAdd(&player.position, &player.velocity);
+            float dt = (float)tDeltaTime;
+            if (dt > 50.0f) {
+                dt = 50.0f;
             }
-            
+
+            pollInput(&player, dt, gamepad);
+            vectorAdd(&player.rotation, &player.rotationDirection);
+
+            if (player.rotation.x > 1.57f) {
+                player.rotation.x = 1.57f;
+            } else if (player.rotation.x < -1.57f) {
+                player.rotation.x = -1.57f;
+            }
+
+            const float PLAYER_RADIUS = 1.5f;
+            const float EYE_HEIGHT = 2.0f;
+            const float MAX_STEP_HEIGHT = 0.8f;
+
+            Vector wishDir = blankVector();
+            wishDir.x = cosf(player.rotation.y) * player.movementDirection.x + sinf(player.rotation.y) * player.movementDirection.z;
+            wishDir.z = -sinf(player.rotation.y) * player.movementDirection.x + cosf(player.rotation.y) * player.movementDirection.z;
+
+            Vector horizDelta = createVector(wishDir.x, 0.0f, wishDir.z);
+            float horizSpeed = vectorMag(horizDelta, blankVector());
+
+            Vector moveXZ = createVector(wishDir.x, 0.0f, wishDir.z);
+            float totalDist = vectorMag(moveXZ, blankVector());
+
+            if (totalDist > 0.0001f) {
+                float maxSubStep = PLAYER_RADIUS * 0.5f;
+                int subSteps = (int)ceilf(totalDist / maxSubStep);
+                if (subSteps < 1) subSteps = 1;
+                if (subSteps > 8) subSteps = 8;
+
+                Vector stepVec = createVector(moveXZ.x / subSteps, 0.0f, moveXZ.z / subSteps);
+                const float fanAngles[] = { 0.0f, -0.5236f, 0.5236f, -1.0472f, 1.0472f }; // 0, +-30 deg, +-60 deg
+                const int numAngles = 5;
+
+                for (int s = 0; s < subSteps; s++) {
+                    Vector rem = stepVec;
+
+                    for (int iter = 0; iter < 3; iter++) {
+                        float remLen = vectorMag(rem, blankVector());
+                        if (remLen <= 0.0001f) break;
+
+                        Vector dir = rem;
+                        normalizeVector(&dir);
+
+                        float probeReach = PLAYER_RADIUS + remLen;
+                        bool foundHit = false;
+                        double closestDist = DBL_MAX;
+                        Vector bestNormal = blankVector();
+
+                        Vector heights[2] = {
+                            createVector(player.position.x, player.position.y - EYE_HEIGHT + 0.3f, player.position.z),
+                            createVector(player.position.x, player.position.y - 0.3f, player.position.z)
+                        };
+
+                        for (int h = 0; h < 2; h++) {
+                            for (int a = 0; a < numAngles; a++) {
+                                Vector rayDir = rotateXZ(dir, fanAngles[a]);
+                                Vector raySeg = createVector(rayDir.x * probeReach, 0.0f, rayDir.z * probeReach);
+                                RaycastResult hit = raycast(heights[h], raySeg, &world);
+
+                                if (hit.hit && hit.distance <= probeReach && hit.distance < closestDist) {
+                                    closestDist = hit.distance;
+                                    bestNormal = hit.normal;
+                                    foundHit = true;
+                                }
+                            }
+                        }
+
+                        if (!foundHit) {
+                            player.position.x += rem.x;
+                            player.position.z += rem.z;
+                            rem = blankVector();
+                            break;
+                        }
+
+                        normalizeVector(&bestNormal);
+                        bestNormal.y = 0.0f;
+                        normalizeVector(&bestNormal);
+
+                        if (closestDist < (double)PLAYER_RADIUS) {
+                            float pushOut = (float)((double)PLAYER_RADIUS - closestDist) + 0.01f;
+                            player.position.x += bestNormal.x * pushOut;
+                            player.position.z += bestNormal.z * pushOut;
+                        }
+
+                        // 2. Remove inward motion along wall normal and advance tangent portion
+                        float vn = rem.x * bestNormal.x + rem.z * bestNormal.z;
+                        if (vn < 0.0f) {
+                            rem.x -= vn * bestNormal.x;
+                            rem.z -= vn * bestNormal.z;
+                        }
+
+                        // Advance along remaining slide vector up to remaining reach
+                        float slideLen = vectorMag(rem, blankVector());
+                        if (slideLen > 0.0001f) {
+                            player.position.x += rem.x;
+                            player.position.z += rem.z;
+                            rem = blankVector();
+                        }
+                    }
+                }
+            }
+
+            player.velocity.y -= 0.0001f * dt;
+            player.position.y += player.velocity.y;
+
+            Vector downRayOrigin = createVector(player.position.x, player.position.y, player.position.z);
+            float groundProbeLen = EYE_HEIGHT + 1.0f;
+            RaycastResult groundRay = raycast(downRayOrigin, createVector(0.0f, -groundProbeLen, 0.0f), &world);
+
+            if (groundRay.hit && groundRay.distance <= EYE_HEIGHT && player.velocity.y <= 0.0f) {
+                player.position.y = groundRay.position.y + EYE_HEIGHT;
+                player.velocity.y = 0.0f;
+                player.touchingGround = 1;
+            } else {
+                player.touchingGround = 0;
+            }
+
             camera.position = player.position;
+            camera.rotation = player.rotation;
         }
 
         if (player.rotation.x > 1.57) {

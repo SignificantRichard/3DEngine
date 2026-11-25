@@ -19,6 +19,8 @@ int vectorEquals(Vector v1, Vector v2);
 void vectorAdd(Vector* v, Vector* a);
 void vectorSub(Vector* v, Vector* a);
 
+void normalizeVector(Vector* v);
+
 Vector lookVector(Vector rot);
 Vector rightVector(Vector rot);
 Vector upVector(Vector rot);

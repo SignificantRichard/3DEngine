@@ -4,6 +4,7 @@ project(Engine LANGUAGES C)
 find_package(SDL3 REQUIRED)
 
 set(SOURCE_FILES
+    ./source/engine/controller.c
     ./source/engine/asset_manager.c
     ./source/engine/files.c
     ./source/engine/image.c

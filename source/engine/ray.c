@@ -57,8 +57,8 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
     }
     Vector rayDir = normalizeVec(direction);
 
-    for (int i = 0; i < world->worldSize; i++) {
-        Mesh mesh = world->meshes[i];
+    for (int i = world->worldSize - 1; i >= 0; i--) {
+        Mesh mesh = world->meshes[world->drawOrder[i]]; // use draw order to shortcut
 
         if (!mesh.collision) {
             continue;
@@ -67,7 +67,7 @@ RaycastResult raycast(Vector origin, Vector direction, World* world) {
         Vector meshPos = mesh.position;
         Vector meshRot = mesh.rotation;
 
-        for (int j = 0; j < mesh.faceAmount; j++) {
+        for (int j = mesh.faceAmount - 1; j >= 0; j--) {
             Face face = mesh.faces[j];
 
             Vector a = rotatePointXYZ(*face.a, meshRot);

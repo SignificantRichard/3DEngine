@@ -17,10 +17,10 @@
 #define DEFAULT_TEXTURE "default"
 
 // Player Data
-#define WALK_SPEED 0.3f
-#define RUN_SPEED 1.0f
+#define WALK_SPEED 0.1f
+#define RUN_SPEED 0.3f
 
-#define JUMP_POWER 0.034f
+#define JUMP_POWER 0.09f
 #define CROUCH_HEIGHT 0.5f
 
 // Game Data

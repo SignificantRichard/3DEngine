@@ -59,6 +59,11 @@ float vectorMag(Vector v, Vector a) {
     return cbrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
+void normalizeVector(Vector* v) {
+    float n = vectorMag(*v, blankVector());
+    linearDiv(v, n);
+}
+
 float dot(Vector a, Vector b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
