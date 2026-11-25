@@ -14,9 +14,9 @@
 #include "asset_manager.h"
 #include "image.h"
 
-SDL_Texture* convertToTexture(AssetManager* assetManager, Sprite sprite) {
-    int width = sprite.width;
-    int height = sprite.height;
+SDL_Texture* convertToTexture(AssetManager* assetManager, Sprite* sprite) {
+    int width = sprite->width;
+    int height = sprite->height;
 
     SDL_Texture* texture = SDL_CreateTexture(
         assetManager->renderer,
@@ -28,7 +28,7 @@ SDL_Texture* convertToTexture(AssetManager* assetManager, Sprite sprite) {
 
     int pitch = width * sizeof(uint32_t);
 
-    SDL_UpdateTexture(texture, NULL, (const void *)sprite.data, pitch);
+    SDL_UpdateTexture(texture, NULL, (const void *)sprite->data, pitch);
 
     return texture;
 }
@@ -53,7 +53,7 @@ AssetManager createAssetManager(SDL_Renderer* renderer) {
     return a;
 }
 
-void addImageToAssetManager(AssetManager* assetManager, Sprite sprite, char* filePath) {
+void addImageToAssetManager(AssetManager* assetManager, Sprite* sprite, char* filePath) {
     SDL_Texture* texture = convertToTexture(assetManager, sprite);
     ImageAsset asset;
     asset.texture = texture;
@@ -71,7 +71,12 @@ void removeImageFromAssetManager(AssetManager* assetManager, int index) {
 
 int loadImageAsset(AssetManager* assetManager, char* filePath) {
     Sprite sprite = loadImageAsSprite(filePath);
-    addImageToAssetManager(assetManager, sprite, filePath);
+    addImageToAssetManager(assetManager, &sprite, filePath);
+    destroySprite(&sprite);
     printf("Added %s to assets\n", filePath);
     return sprite.width;
+}
+
+void destroyAssetManager(AssetManager* assetManager) {
+    free(assetManager->textures);
 }

@@ -36,3 +36,38 @@ int addMeshToWorld(World* world, Mesh* mesh) {
 
     return world->worldSize++;
 }
+
+void removeMeshFromWorld(World* world, int index) {
+    // freeing needs a seperate call
+    Mesh holdMesh = world->meshes[world->worldSize - 1];
+
+    {
+        Mesh* temp = (Mesh*)realloc(world->meshes, sizeof(Mesh) * (world->worldSize - 1));
+        
+        if (temp == NULL) {
+            printf("Bad realloc\n");
+            return;
+        }
+    
+        world->meshes = temp;
+    }
+
+    uint32_t* temp = (uint32_t*)realloc(world->drawOrder, sizeof(uint32_t) * (world->worldSize - 1));
+    
+    if (temp == NULL) {
+        printf("Bad realloc\n");
+        return;
+    }
+
+    world->meshes[index] = holdMesh;
+    world->drawOrder[world->worldSize - 1] = index;
+    world->worldSize--;
+}
+
+void destroyWorld(World* world) {
+    for (int i = 0; i < world->worldSize; i++) {
+        destroyMesh(&world->meshes[i]);
+    }
+    free(world->meshes);
+    free(world->drawOrder);
+}

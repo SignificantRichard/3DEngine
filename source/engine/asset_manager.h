@@ -16,9 +16,10 @@ typedef struct {
 } AssetManager;
 
 AssetManager createAssetManager(SDL_Renderer* renderer);
-void addImageToAssetManager(AssetManager* assetManager, Sprite sprite, char* filePath);
+void addImageToAssetManager(AssetManager* assetManager, Sprite* sprite, char* filePath);
 void removeImageFromAssetManager(AssetManager* assetManager, int index);
 int loadImageAsset(AssetManager* assetManager, char* filePath);
 int lookForImageAsset(AssetManager* assetManager, char* filePath);
+void destroyAssetManager(AssetManager* assetManager);
 
 #endif

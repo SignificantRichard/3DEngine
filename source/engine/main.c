@@ -385,6 +385,8 @@ int main(int argc, char* argv[]) {
         tDeltaTime = 0.0;
     }
 
+    destroyWorld(&world);
+
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

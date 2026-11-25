@@ -273,3 +273,7 @@ Sprite resample(Sprite original, int w, int h, int method) {
 
     return new;
 }
+
+void destroySprite(Sprite* sprite) {
+    free(sprite->data);
+}

@@ -12,5 +12,7 @@ typedef struct {
 
 World createWorld();
 int addMeshToWorld(World* world, Mesh* mesh);
+void removeMeshFromWorld(World* world, int index);
+void destroyWorld(World* world);
 
 #endif

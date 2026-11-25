@@ -23,5 +23,6 @@ void addFaceToMesh(Mesh* m, Face* f);
 void calculateMeshNormals(Mesh* m);
 void rescaleMesh(Mesh* mesh, float scale);
 Vector computeFaceNormal(Face f);
+void destroyMesh(Mesh* mesh);
 
 #endif

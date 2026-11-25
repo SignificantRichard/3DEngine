@@ -28,5 +28,6 @@ uint32_t makeColor(int r, int g, int b, int a);
 int getColorFragment(uint32_t color, int place);
 Sprite loadImageAsSprite(char* path);
 Sprite resample(Sprite original, int w, int h, int method);
+void destroySprite(Sprite* sprite);
 
 #endif

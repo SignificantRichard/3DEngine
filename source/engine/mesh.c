@@ -285,3 +285,10 @@ Mesh loadMeshFromBin(const char* filename) {
            vertexAmount, faceAmount, loadedUVs ? "yes" : "triplanar fallback");
     return mesh;
 }
+
+void destroyMesh(Mesh* mesh) {
+    // WILL DESTROY ALL SHALLOW CLONED MESHES
+    free(mesh->vectors);
+    free(mesh->faces);
+    free(mesh->normals);
+}
