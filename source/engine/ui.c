@@ -103,3 +103,18 @@ TTF_Font* createFirstAvailableFont(float fontSize) {
     SDL_Log("No fallback font found; last error: %s", SDL_GetError());
     return NULL;
 }
+
+int setLabelText(Label* label, const char* newText) {
+    if (!label || !label->textbox || !newText) {
+        return 0;
+    }
+
+    // Passing 0 for length reads until the null terminator '\0'
+    if (!TTF_SetTextString(label->textbox, newText, 0)) {
+        SDL_Log("Failed to update label text: %s", SDL_GetError());
+        return 0;
+    }
+
+    TTF_GetTextSize(label->textbox, &label->size.x, &label->size.y);
+    return 1;
+}

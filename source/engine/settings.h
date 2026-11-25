@@ -2,7 +2,7 @@
 #define SETTINGS_H
 
 // Render Data
-#define frameRate 1.0 / 60.0
+#define frameRate 1.0 / 2000.0
 #define pollRate 1.0 / 120.0
 #define INTERNAL_WIDTH 1400
 #define INTERNAL_HEIGHT 800
@@ -18,12 +18,15 @@
 
 // Player Data
 #define WALK_SPEED 0.1f
-#define RUN_SPEED 0.3f
+#define RUN_SPEED 0.2f
 
-#define JUMP_POWER 0.09f
+#define JUMP_POWER 0.25f
 #define CROUCH_HEIGHT 0.5f
 
 // Game Data
+
+#define GRAVITY 0.00125f
+#define TERMINAL_VELOCITY 0.8f
 
 // Inventory Data
 

@@ -28,7 +28,13 @@ void linearAdd(Vector* v, float a) {
 }
 
 void linearDiv(Vector* v, float a) {
-    linearMult(v, 1 / a);
+    if (a == 0.0f) {
+        v->x = 0.0f;
+        v->y = 0.0f;
+        v->z = 0.0f;
+        return;
+    }
+    linearMult(v, 1.0f / a);
 }
 
 void linearSub(Vector* v, float a) {
@@ -60,7 +66,14 @@ float vectorMag(Vector v, Vector a) {
 }
 
 void normalizeVector(Vector* v) {
-    float n = vectorMag(*v, blankVector());
+    float lenSq = v->x * v->x + v->y * v->y + v->z * v->z;
+    if (lenSq <= 1e-12f) {
+        v->x = 0.0f;
+        v->y = 0.0f;
+        v->z = 0.0f;
+        return;
+    }
+    float n = sqrtf(lenSq);
     linearDiv(v, n);
 }
 

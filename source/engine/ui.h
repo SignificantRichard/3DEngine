@@ -35,4 +35,6 @@ void destroyLabel(Label* label);
 
 TTF_Font* createFirstAvailableFont(float fontSize);
 
+int setLabelText(Label* label, const char* newText);
+
 #endif

@@ -44,31 +44,22 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
 
     bool running = true;
 
-    uint64_t NOW = SDL_GetPerformanceCounter();
-    uint64_t LAST = 0;
-    double deltaTime = 0.0;
-    double tDeltaTime = 0.0;
+    const uint64_t freq = SDL_GetPerformanceFrequency();
+    const double targetFrameSec = (frameRate > 0.0) ? (1.0 / (double)frameRate) : 0.0;
 
-    double waitTime = frameRate;
-    double waitedTime = 0.0;
-
+    uint64_t frameStart = SDL_GetPerformanceCounter();
+    double deltaTimeMs = (targetFrameSec > 0.0) ? (targetFrameSec * 1000.0) : 16.667;
     uint64_t tick = 0;
 
     while (running) {
-        LAST = NOW;
+        double fps = (deltaTimeMs > 0.0) ? (1000.0 / deltaTimeMs) : 0.0;
+        char strFPS[64];
+        snprintf(strFPS, sizeof(strFPS), "FPS: %.1f", fps);
+        setLabelText(&label, strFPS);
 
-        // do some stuff before the frame delay
-        if (waitedTime == 0.0) { // makes sure this only runs once per frame
-            sortDrawOrder(world, camera.position, 0, world->worldSize - 1);
-        }
-
-        NOW = SDL_GetPerformanceCounter();
-        deltaTime = (double)((NOW - LAST)*1000 / (double)SDL_GetPerformanceFrequency());
-        tDeltaTime += deltaTime;
         // events and input
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     running = false;
@@ -87,28 +78,21 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
                     }
                     break;
             }
-
         }
 
-        waitedTime += deltaTime;
-
-        if (waitedTime < waitTime) {
-            SDL_Delay((uint32_t)((waitTime - waitedTime) * 1000));
-            continue; // doesn't allow rendering until frame time is done
-        }
-
-        waitedTime = 0.0;
+        sortDrawOrder(world, camera.position, 0, world->worldSize - 1);
 
         { // gravity logic
             RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), world);
             if (!ray.hit) {
-                // player.position.y -= 0.005f;
-                player.velocity.y -= 0.0001f * tDeltaTime;
+                if (player.velocity.y > -TERMINAL_VELOCITY) {
+                    player.velocity.y -= GRAVITY * deltaTimeMs;
+                }
                 player.touchingGround = 0;
             } else {
                 if (player.velocity.y <= 0.0f) {
                     if (ray.distance > 0.8f) { // for stairs
-                        player.position.y = ray.position.y + 9.99f;
+                        player.position.y = ray.position.y + player.hipHeight - 0.01f;
                     }
                     player.velocity.y = 0;
                     player.touchingGround = 1;
@@ -117,12 +101,8 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
         }
 
         { // movement direction
-            float dt = (float)tDeltaTime;
-            if (dt > 50.0f) {
-                dt = 50.0f;
-            }
 
-            pollInput(&player, dt, gamepad);
+            pollInput(&player, deltaTimeMs, gamepad);
             vectorAdd(&player.rotation, &player.rotationDirection);
 
             if (player.rotation.x > 1.57f) {
@@ -133,14 +113,10 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
 
             const float PLAYER_RADIUS = 1.5f;
             const float EYE_HEIGHT = 2.0f;
-            const float MAX_STEP_HEIGHT = 0.8f;
 
             Vector wishDir = blankVector();
             wishDir.x = cosf(player.rotation.y) * player.movementDirection.x + sinf(player.rotation.y) * player.movementDirection.z;
             wishDir.z = -sinf(player.rotation.y) * player.movementDirection.x + cosf(player.rotation.y) * player.movementDirection.z;
-
-            Vector horizDelta = createVector(wishDir.x, 0.0f, wishDir.z);
-            float horizSpeed = vectorMag(horizDelta, blankVector());
 
             Vector moveXZ = createVector(wishDir.x, 0.0f, wishDir.z);
             float totalDist = vectorMag(moveXZ, blankVector());
@@ -206,7 +182,7 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
                             player.position.z += bestNormal.z * pushOut;
                         }
 
-                        // 2. Remove inward motion along wall normal and advance tangent portion
+                        // Remove inward motion along wall normal and advance tangent portion
                         float vn = rem.x * bestNormal.x + rem.z * bestNormal.z;
                         if (vn < 0.0f) {
                             rem.x -= vn * bestNormal.x;
@@ -224,8 +200,7 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
                 }
             }
 
-            player.velocity.y -= 0.0001f * dt;
-            player.position.y += player.velocity.y;
+            player.position.y += player.velocity.y * deltaTimeMs;
 
             Vector downRayOrigin = createVector(player.position.x, player.position.y, player.position.z);
             float groundProbeLen = EYE_HEIGHT + 1.0f;
@@ -261,7 +236,6 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
             world->meshes[1].rotation = camera.rotation;
         }
 
-
         SDL_SetRenderDrawColor(renderer, SKY_COLOR, 255);
         SDL_RenderClear(renderer);
 
@@ -273,9 +247,22 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
 
         SDL_RenderPresent(renderer);
 
-        tick++;
+        if (targetFrameSec > 0.0) {
+            uint64_t beforeSleep = SDL_GetPerformanceCounter();
+            double elapsedSec = (double)(beforeSleep - frameStart) / (double)freq;
+            if (targetFrameSec > elapsedSec) {
+                double sleepSec = targetFrameSec - elapsedSec;
+                if (sleepSec > 0.001) {
+                    SDL_Delay((uint32_t)((sleepSec - 0.0005) * 1000.0));
+                }
+            }
+        }
 
-        tDeltaTime = 0.0;
+        uint64_t frameEnd = SDL_GetPerformanceCounter();
+        deltaTimeMs = ((double)(frameEnd - frameStart) * 1000.0) / (double)freq;
+        frameStart = frameEnd;
+
+        tick++;
     }
 }
 
