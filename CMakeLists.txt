@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(Engine LANGUAGES C)
 
-find_package(SDL3 REQUIRED)
-
 set(SOURCE_FILES
     ./source/engine/controller.c
     ./source/engine/asset_manager.c
@@ -16,14 +14,19 @@ set(SOURCE_FILES
     ./source/engine/ray.c
     ./source/engine/instances.c
     ./source/engine/render.c
+    ./source/engine/ui.c
     ./source/engine/main.c
     ./source/world/entry.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE 
+find_package(SDL3 REQUIRED)
+find_package(SDL3_ttf REQUIRED)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
     SDL3::SDL3
+    SDL3_ttf::SDL3_ttf
 )
 
 # Unix-like systems (Linux/macOS) require -lm; Windows (MSVC) includes math functions by default

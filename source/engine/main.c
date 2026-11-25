@@ -10,6 +10,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
@@ -23,6 +24,7 @@
 #include "instances.h"
 #include "render.h"
 #include "ray.h"
+#include "ui.h"
 #include "sound.h"
 #include "controller.h"
 #include "../world/entry.h"
@@ -117,6 +119,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    if (!TTF_Init()) {
+        printf("SDL TTF FAILED\f");
+        return 1;
+    }
+
     SDL_Window* window = NULL;
     SDL_Renderer* renderer = NULL;
     if (!SDL_CreateWindowAndRenderer("Engine", INTERNAL_WIDTH, INTERNAL_HEIGHT, 0, &window, &renderer)) {
@@ -152,6 +159,11 @@ int main(int argc, char* argv[]) {
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
 
     SDL_Gamepad* gamepad = NULL;
+
+    // create test ui
+    TTF_TextEngine* textEngine = createRendererEngine(renderer);
+    TTF_Font* font = createFirstAvailableFont(12);
+    Label label = createLabel(textEngine, font, "TEST BUILD: TEST BUILD", 0, 0);
 
     uint64_t NOW = SDL_GetPerformanceCounter();
     uint64_t LAST = 0;
@@ -377,6 +389,8 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < world.worldSize; i++) {
             renderModel(renderer, &world.meshes[world.drawOrder[i]], camera, &assetManager);
         }
+
+        renderLabel(&label);
 
         SDL_RenderPresent(renderer);
 
