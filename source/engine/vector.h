@@ -30,4 +30,6 @@ float vectorMag(Vector v, Vector a);
 float dot(Vector a, Vector b);
 Vector cross(Vector a, Vector b);
 
+Vector rotateXZ(Vector v, float angleRad);
+
 #endif

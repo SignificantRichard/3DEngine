@@ -31,139 +31,18 @@
 
 #include "settings.h"
 
-static Vector rotateXZ(Vector v, float angleRad) {
-    float c = cosf(angleRad);
-    float s = sinf(angleRad);
-    return createVector(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
-}
-
-void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
-    const bool *keyStates = SDL_GetKeyboardState(NULL);
-    Vector localMovementDirection = blankVector();
-
-    ControllerOutput output = {0};
-
-    getGamepadInputs(&output, gamepad);
-    localMovementDirection.x = output.left.x / 0xffff;
-    localMovementDirection.z = output.left.y / -0xffff;
-
-    if (keyStates[SDL_SCANCODE_W]) {
-        localMovementDirection.z += 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_S]) {
-        localMovementDirection.z -= 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_A]) {
-        localMovementDirection.x -= 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_D]) {
-        localMovementDirection.x += 1.0f;
-    }
-
-    if ((keyStates[SDL_SCANCODE_SPACE] || decodeButtonState(&output, SDL_GAMEPAD_BUTTON_SOUTH)) && body->touchingGround) {
-        body->velocity.y = JUMP_POWER;
-    }
-    // if (keyStates[SDL_SCANCODE_LCTRL]) {
-    //     // localMovementDirection.y -= 1;
-    // }
-
-    if (keyStates[SDL_SCANCODE_0]) {
-        body->position = blankVector();
-        body->rotation = blankVector();
-    }
-
-    if (keyStates[SDL_SCANCODE_9]) {
-        body->position = createVector(999999.0f, 999999.0f, 999999.0f);
-        body->rotation = blankVector();
-    }
-
-    float speed = WALK_SPEED;
-    if (keyStates[SDL_SCANCODE_LSHIFT]) {
-        speed = RUN_SPEED;
-    }
-
-    linearMult(&localMovementDirection, delta * speed);
-    body->movementDirection = localMovementDirection;
-
-    // backup
-    localMovementDirection = blankVector();
-    // mouse movement
-    Vector mouseDelta = blankVector();
-
-    SDL_GetRelativeMouseState(&mouseDelta.y, &mouseDelta.x);
-    localMovementDirection.y = output.right.x / 0xffff;
-    localMovementDirection.x = output.right.y / 0xffff;
-
-    if (keyStates[SDL_SCANCODE_UP]) {
-        localMovementDirection.x -= 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_DOWN]) {
-        localMovementDirection.x += 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_LEFT]) {
-        localMovementDirection.y -= 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_RIGHT]) {
-        localMovementDirection.y += 1.0f;
-    }
-    
-    linearMult(&localMovementDirection, delta * 0.0025f);
-    linearMult(&mouseDelta, delta * 0.025f);
-    body->rotationDirection = localMovementDirection;
-    vectorAdd(&body->rotation, &mouseDelta);
-}
-
-int main(int argc, char* argv[]) {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
-        SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
-        return 1;
-    }
-
-    if (!TTF_Init()) {
-        printf("SDL TTF FAILED\f");
-        return 1;
-    }
-
-    SDL_Window* window = NULL;
-    SDL_Renderer* renderer = NULL;
-    if (!SDL_CreateWindowAndRenderer("Engine", INTERNAL_WIDTH, INTERNAL_HEIGHT, 0, &window, &renderer)) {
-        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
-        SDL_Quit();
-        return 1;
-    }
-
-    // set mouse lock
-    SDL_SetWindowRelativeMouseMode(window, 1);
-
-    bool running = true;
-
-    AssetManager assetManager = createAssetManager(renderer);
-
-    World world = createWorld();
-    
-    loadAndAddModel(&world, "./source/res/models/e1m1.mdl");
-    loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
-    loadAndAddModel(&world, "./source/res/models/sword.mdl");
-    loadAndAddModel(&world, "./source/res/models/cube.mdl");
-    world.meshes[0].texture = "./source/res/images/alternate.lif";
-    world.meshes[2].texture = "./source/res/images/alternate.lif";
-    world.meshes[0].collision = 1;
-    world.meshes[2].collision = 1;
-
-    Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
-
-    world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
-    world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
-    rescaleMesh(&world.meshes[0], 100.0f);
-
-    struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
-
+void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) {
     SDL_Gamepad* gamepad = NULL;
 
     // create test ui
     TTF_TextEngine* textEngine = createRendererEngine(renderer);
     TTF_Font* font = createFirstAvailableFont(12);
     Label label = createLabel(textEngine, font, "TEST BUILD: TEST BUILD", 0, 0);
+
+    Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
+    struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
+
+    bool running = true;
 
     uint64_t NOW = SDL_GetPerformanceCounter();
     uint64_t LAST = 0;
@@ -180,7 +59,7 @@ int main(int argc, char* argv[]) {
 
         // do some stuff before the frame delay
         if (waitedTime == 0.0) { // makes sure this only runs once per frame
-            sortDrawOrder(&world, camera.position, 0, world.worldSize - 1);
+            sortDrawOrder(world, camera.position, 0, world->worldSize - 1);
         }
 
         NOW = SDL_GetPerformanceCounter();
@@ -221,7 +100,7 @@ int main(int argc, char* argv[]) {
         waitedTime = 0.0;
 
         { // gravity logic
-            RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), &world);
+            RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), world);
             if (!ray.hit) {
                 // player.position.y -= 0.005f;
                 player.velocity.y -= 0.0001f * tDeltaTime;
@@ -300,7 +179,7 @@ int main(int argc, char* argv[]) {
                             for (int a = 0; a < numAngles; a++) {
                                 Vector rayDir = rotateXZ(dir, fanAngles[a]);
                                 Vector raySeg = createVector(rayDir.x * probeReach, 0.0f, rayDir.z * probeReach);
-                                RaycastResult hit = raycast(heights[h], raySeg, &world);
+                                RaycastResult hit = raycast(heights[h], raySeg, world);
 
                                 if (hit.hit && hit.distance <= probeReach && hit.distance < closestDist) {
                                     closestDist = hit.distance;
@@ -350,7 +229,7 @@ int main(int argc, char* argv[]) {
 
             Vector downRayOrigin = createVector(player.position.x, player.position.y, player.position.z);
             float groundProbeLen = EYE_HEIGHT + 1.0f;
-            RaycastResult groundRay = raycast(downRayOrigin, createVector(0.0f, -groundProbeLen, 0.0f), &world);
+            RaycastResult groundRay = raycast(downRayOrigin, createVector(0.0f, -groundProbeLen, 0.0f), world);
 
             if (groundRay.hit && groundRay.distance <= EYE_HEIGHT && player.velocity.y <= 0.0f) {
                 player.position.y = groundRay.position.y + EYE_HEIGHT;
@@ -374,20 +253,20 @@ int main(int argc, char* argv[]) {
         { // player element
             Vector lVector = lookVector(camera.rotation);
             linearMult(&lVector, 3.0f);
-            world.meshes[1].position = lVector;
+            world->meshes[1].position = lVector;
             Vector rVector = rightVector(camera.rotation);
             linearMult(&rVector, 2.5f);
-            vectorAdd(&world.meshes[1].position, &rVector);
-            vectorAdd(&world.meshes[1].position, &camera.position);
-            world.meshes[1].rotation = camera.rotation;
+            vectorAdd(&world->meshes[1].position, &rVector);
+            vectorAdd(&world->meshes[1].position, &camera.position);
+            world->meshes[1].rotation = camera.rotation;
         }
 
 
         SDL_SetRenderDrawColor(renderer, SKY_COLOR, 255);
         SDL_RenderClear(renderer);
 
-        for (int i = 0; i < world.worldSize; i++) {
-            renderModel(renderer, &world.meshes[world.drawOrder[i]], camera, &assetManager);
+        for (int i = 0; i < world->worldSize; i++) {
+            renderModel(renderer, &world->meshes[world->drawOrder[i]], camera, assetManager);
         }
 
         renderLabel(&label);
@@ -398,6 +277,48 @@ int main(int argc, char* argv[]) {
 
         tDeltaTime = 0.0;
     }
+}
+
+int main(int argc, char* argv[]) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+        SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+        return 1;
+    }
+
+    if (!TTF_Init()) {
+        printf("SDL TTF FAILED\f");
+        return 1;
+    }
+
+    SDL_Window* window = NULL;
+    SDL_Renderer* renderer = NULL;
+    if (!SDL_CreateWindowAndRenderer("Engine", INTERNAL_WIDTH, INTERNAL_HEIGHT, 0, &window, &renderer)) {
+        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    // set mouse lock
+    SDL_SetWindowRelativeMouseMode(window, 1);
+
+    AssetManager assetManager = createAssetManager(renderer);
+
+    World world = createWorld();
+    
+    loadAndAddModel(&world, "./source/res/models/e1m1.mdl");
+    loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
+    loadAndAddModel(&world, "./source/res/models/sword.mdl");
+    loadAndAddModel(&world, "./source/res/models/cube.mdl");
+    world.meshes[0].texture = "./source/res/images/alternate.lif";
+    world.meshes[2].texture = "./source/res/images/alternate.lif";
+    world.meshes[0].collision = 1;
+    world.meshes[2].collision = 1;
+
+    world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
+    world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
+    rescaleMesh(&world.meshes[0], 100.0f);
+
+    gameLoop(&world, &assetManager, renderer);
 
     destroyWorld(&world);
 

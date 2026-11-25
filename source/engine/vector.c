@@ -111,3 +111,9 @@ Vector upVector(Vector rot) {
 
     return createVector(x, y, z);
 }
+
+Vector rotateXZ(Vector v, float angleRad) {
+    float c = cosf(angleRad);
+    float s = sinf(angleRad);
+    return createVector(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+}
