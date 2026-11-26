@@ -13,9 +13,6 @@ typedef struct {
     Vector* a;
     Vector* b;
     Vector* c;
-    UV uvA;
-    UV uvB;
-    UV uvC;
     bool hasUVs;
 } Face;
 

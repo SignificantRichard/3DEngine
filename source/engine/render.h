@@ -1,4 +1,6 @@
-#include <stdio.h>
+#ifndef RENDER_H
+#define RENDER_H
+
 #include <stdbool.h>
 #include <SDL3/SDL.h>
 #include "vector.h"
@@ -7,16 +9,37 @@
 #include "asset_manager.h"
 #include "world.h"
 
-bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace);
+typedef struct {
+    float m[16];
+} Mat4;
 
-bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, float* x, float* y);
+typedef struct {
+    Mat4 mvp;
+    Mat4 model;
+} VertexUniforms;
 
-int compareFaces(const void* a, const void* b);
+typedef struct {
+    float lightDir[3];
+    float ambient;
+    float _pad[2]; // 16-byte / std140-friendly alignment
+} FragmentUniforms;
 
-void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager);
+typedef struct {
+    SDL_GPUDevice* device;
+    SDL_Window* window;
+    SDL_GPUGraphicsPipeline* pipeline;
+    SDL_GPUTexture* depthTexture;
+    SDL_GPUTextureFormat depthFormat;
+    SDL_GPUSampler* sampler;
+    Uint32 depthWidth;
+    Uint32 depthHeight;
+} Renderer;
 
-void swapDrawOrder(int* a, int* b);
+bool initRenderer(Renderer* r, SDL_Window* window, const char* vertSpvPath, const char* fragSpvPath);
+bool ensureDepthTexture(Renderer* r, Uint32 width, Uint32 height);
+void renderWorld(Renderer* r, World* world, struct Camera camera, AssetManager* assetManager);
+void renderMesh(Renderer* r, SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
+                const Mesh* mesh, const Mat4* viewProj, AssetManager* assetManager);
+void destroyRenderer(Renderer* r);
 
-int sortOrderPartition(World* world, Vector position, int low, int high);
-
-void sortDrawOrder(World* world, Vector position, int low, int high);
+#endif

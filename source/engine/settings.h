@@ -2,8 +2,8 @@
 #define SETTINGS_H
 
 // Render Data
-#define frameRate 1.0 / 2000.0
-#define pollRate 1.0 / 120.0
+#define FRAME_RATE 1.0 / 120.0
+#define POLL_RATE 1.0 / 120.0
 #define INTERNAL_WIDTH 1400
 #define INTERNAL_HEIGHT 800
 

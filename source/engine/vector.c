@@ -62,7 +62,7 @@ float vectorMag(Vector v, Vector a) {
     v.y -= a.y;
     v.z -= a.z;
 
-    return cbrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
 void normalizeVector(Vector* v) {

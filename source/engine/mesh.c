@@ -88,6 +88,9 @@ void resizeVectorArray(Mesh* m, int size) {
 
 Mesh createMesh() {
     Mesh m;
+    m.gpuVertices = NULL;
+    m.gpuVertexCount = 0;
+    m.gpuVertexBuffer = NULL;
     m.faces = (Face*)malloc(sizeof(Face));
     m.normals = (Vector*)malloc(sizeof(Vector));
     m.vectors = (Vector*)malloc(sizeof(Vector));
@@ -115,6 +118,118 @@ void rescaleMesh(Mesh* mesh, float scale) {
     }
 }
 
+static UV computeTriplanarUVForPoint(Vector p, Vector n, float scale) {
+    float ax = fabsf(n.x);
+    float ay = fabsf(n.y);
+    float az = fabsf(n.z);
+
+    if (ax >= ay && ax >= az) {
+        return (UV){ p.z * scale, p.y * scale };
+    } else if (ay >= ax && ay >= az) {
+        return (UV){ p.x * scale, p.z * scale };
+    } else {
+        return (UV){ p.x * scale, p.y * scale };
+    }
+}
+
+void buildMeshGpuVertices(Mesh* mesh) {
+    if (!mesh || mesh->faceAmount <= 0) {
+        free(mesh->gpuVertices);
+        mesh->gpuVertices = NULL;
+        mesh->gpuVertexCount = 0;
+        return;
+    }
+
+    int vertCount = mesh->faceAmount * 3;
+    GpuVertex* verts = (GpuVertex*)malloc((size_t)vertCount * sizeof(GpuVertex));
+    if (!verts) {
+        fprintf(stderr, "Error: Failed to allocate GPU vertex buffer\n");
+        return;
+    }
+
+    const float fallbackUVScale = 1.0f;
+
+    for (int i = 0; i < mesh->faceAmount; i++) {
+        const Face* f = &mesh->faces[i];
+        Vector n = (mesh->normals != NULL) ? mesh->normals[i] : computeFaceNormal(*f);
+
+        UV uv0 = computeTriplanarUVForPoint(*f->a, n, fallbackUVScale);
+        UV uv1 = computeTriplanarUVForPoint(*f->b, n, fallbackUVScale);
+        UV uv2 = computeTriplanarUVForPoint(*f->c, n, fallbackUVScale);
+
+        int base = i * 3;
+        verts[base + 0] = (GpuVertex){ .pos = *f->a, .normal = n, .uv = uv0 };
+        verts[base + 1] = (GpuVertex){ .pos = *f->b, .normal = n, .uv = uv1 };
+        verts[base + 2] = (GpuVertex){ .pos = *f->c, .normal = n, .uv = uv2 };
+    }
+
+    free(mesh->gpuVertices);
+    mesh->gpuVertices = verts;
+    mesh->gpuVertexCount = vertCount;
+}
+
+bool uploadMeshToGPU(Mesh* mesh, SDL_GPUDevice* device, SDL_GPUCopyPass* copyPass) {
+    if (!mesh || !device || !copyPass || !mesh->gpuVertices || mesh->gpuVertexCount <= 0) {
+        return false;
+    }
+
+    Uint32 byteSize = (Uint32)((size_t)mesh->gpuVertexCount * sizeof(GpuVertex));
+
+    if (mesh->gpuVertexBuffer) {
+        SDL_ReleaseGPUBuffer(device, mesh->gpuVertexBuffer);
+        mesh->gpuVertexBuffer = NULL;
+    }
+
+    SDL_GPUBufferCreateInfo bufInfo = {0};
+    bufInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+    bufInfo.size = byteSize;
+
+    mesh->gpuVertexBuffer = SDL_CreateGPUBuffer(device, &bufInfo);
+    if (!mesh->gpuVertexBuffer) {
+        fprintf(stderr, "Failed to create GPU vertex buffer: %s\n", SDL_GetError());
+        return false;
+    }
+
+    SDL_GPUTransferBufferCreateInfo xferInfo = {0};
+    xferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    xferInfo.size = byteSize;
+
+    SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(device, &xferInfo);
+    if (!transfer) {
+        fprintf(stderr, "Failed to create GPU transfer buffer: %s\n", SDL_GetError());
+        SDL_ReleaseGPUBuffer(device, mesh->gpuVertexBuffer);
+        mesh->gpuVertexBuffer = NULL;
+        return false;
+    }
+
+    void* mapped = SDL_MapGPUTransferBuffer(device, transfer, false);
+    if (!mapped) {
+        fprintf(stderr, "Failed to map GPU transfer buffer: %s\n", SDL_GetError());
+        SDL_ReleaseGPUTransferBuffer(device, transfer);
+        SDL_ReleaseGPUBuffer(device, mesh->gpuVertexBuffer);
+        mesh->gpuVertexBuffer = NULL;
+        return false;
+    }
+
+    memcpy(mapped, mesh->gpuVertices, byteSize);
+    SDL_UnmapGPUTransferBuffer(device, transfer);
+
+    SDL_GPUTransferBufferLocation src = {
+        .transfer_buffer = transfer,
+        .offset = 0
+    };
+    SDL_GPUBufferRegion dst = {
+        .buffer = mesh->gpuVertexBuffer,
+        .offset = 0,
+        .size = byteSize
+    };
+    SDL_UploadToGPUBuffer(copyPass, &src, &dst, false);
+
+    // Release transfer buffer after the command buffer using copyPass is submitted
+    SDL_ReleaseGPUTransferBuffer(device, transfer);
+    return true;
+}
+
 void calculateMeshNormals(Mesh* m) {
     for (int i = 0; i < m->faceAmount; i++) {
         m->normals[i] = computeFaceNormal(m->faces[i]);
@@ -123,9 +238,6 @@ void calculateMeshNormals(Mesh* m) {
 
 void addFaceToMesh(Mesh* m, Face* f) {
     Face newFace;
-    newFace.uvA = f->uvA;
-    newFace.uvB = f->uvB;
-    newFace.uvC = f->uvC;
     newFace.hasUVs = f->hasUVs;
 
     int facesSelected = 0;
@@ -233,9 +345,6 @@ Mesh loadMeshFromBin(const char* filename) {
         f.a = &mesh.vectors[idxA];
         f.b = &mesh.vectors[idxB];
         f.c = &mesh.vectors[idxC];
-        f.uvA = (UV){ 0.0f, 0.0f };
-        f.uvB = (UV){ 0.0f, 0.0f };
-        f.uvC = (UV){ 0.0f, 0.0f };
         f.hasUVs = false;
         
         mesh.faces[i] = f;
@@ -263,26 +372,10 @@ Mesh loadMeshFromBin(const char* filename) {
         calculateMeshNormals(&mesh);
     }
 
-    // Read per-face corner UVs if present
-    bool loadedUVs = false;
-    if ((flags & MDL_FLAG_UVS) && fileData.size >= currentOffset + uvBytes) {
-        for (int i = 0; i < faceAmount; i++) {
-            mesh.faces[i].uvA.u = readFloatLE(ptr + 0);
-            mesh.faces[i].uvA.v = readFloatLE(ptr + 4);
-            mesh.faces[i].uvB.u = readFloatLE(ptr + 8);
-            mesh.faces[i].uvB.v = readFloatLE(ptr + 12);
-            mesh.faces[i].uvC.u = readFloatLE(ptr + 16);
-            mesh.faces[i].uvC.v = readFloatLE(ptr + 20);
-            mesh.faces[i].hasUVs = true;
-            ptr += 24;
-        }
-        loadedUVs = true;
-    }
-
     free(fileData.content);
 
-    printf("Successfully loaded mesh: %d vertices, %d faces (UVs: %s)\n",
-           vertexAmount, faceAmount, loadedUVs ? "yes" : "triplanar fallback");
+    buildMeshGpuVertices(&mesh);
+
     return mesh;
 }
 
@@ -291,4 +384,7 @@ void destroyMesh(Mesh* mesh) {
     free(mesh->vectors);
     free(mesh->faces);
     free(mesh->normals);
+    free(mesh->gpuVertices);
+    mesh->gpuVertices = NULL;
+    mesh->gpuVertexCount = 0;
 }

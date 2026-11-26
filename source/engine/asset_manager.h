@@ -6,16 +6,16 @@
 
 typedef struct {
     char* filePath;
-    SDL_Texture* texture;
+    SDL_GPUTexture* texture;
 } ImageAsset;
 
 typedef struct {
     ImageAsset* textures;
-    SDL_Renderer* renderer;
+    SDL_GPUDevice* device;
     int textureCount;
 } AssetManager;
 
-AssetManager createAssetManager(SDL_Renderer* renderer);
+AssetManager createAssetManager(SDL_GPUDevice* device);
 void addImageToAssetManager(AssetManager* assetManager, Sprite* sprite, char* filePath);
 void removeImageFromAssetManager(AssetManager* assetManager, int index);
 int loadImageAsset(AssetManager* assetManager, char* filePath);

@@ -53,7 +53,7 @@ void setPixel(Sprite* sprite, int x, int y, uint32_t color) {
     sprite->data[y * sprite->width + x] = color;
 }
 
-uint32_t makeColor(int r, int g, int b, int a) {
+uint32_t makeColor(uint32_t r, uint32_t g, uint32_t b, uint32_t a) {
     uint32_t color = 0;
     
     r <<= 24;
@@ -113,10 +113,10 @@ Sprite loadImageAsSprite(char* path) {
         if (colorTableOffset + i >= imageData.size) break;
 
         uint8_t paletteIndex = imageData.content[colorTableOffset + i];
-        int r = palette[paletteIndex * bytesPerPaletteEntry + 0];
-        int g = palette[paletteIndex * bytesPerPaletteEntry + 1];
-        int b = palette[paletteIndex * bytesPerPaletteEntry + 2];
-        int a = (bytesPerPaletteEntry == 4) ? palette[paletteIndex * bytesPerPaletteEntry + 3] : 255;
+        int a = (bytesPerPaletteEntry == 4) ? palette[paletteIndex * bytesPerPaletteEntry + 0] : 255;
+        int b = palette[paletteIndex * bytesPerPaletteEntry + 1];
+        int g = palette[paletteIndex * bytesPerPaletteEntry + 2];
+        int r = palette[paletteIndex * bytesPerPaletteEntry + 3];
 
         uint32_t color = makeColor(r, g, b, a);
         int x = i % width;

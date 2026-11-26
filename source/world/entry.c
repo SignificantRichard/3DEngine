@@ -18,10 +18,10 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     localMovementDirection.z = output.left.y / -0xffff;
 
     if (keyStates[SDL_SCANCODE_W]) {
-        localMovementDirection.z += 1.0f;
+        localMovementDirection.z -= 1.0f;
     }
     if (keyStates[SDL_SCANCODE_S]) {
-        localMovementDirection.z -= 1.0f;
+        localMovementDirection.z += 1.0f;
     }
     if (keyStates[SDL_SCANCODE_A]) {
         localMovementDirection.x -= 1.0f;
@@ -68,16 +68,16 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     localMovementDirection.x = output.right.y / 0xffff;
 
     if (keyStates[SDL_SCANCODE_UP]) {
-        localMovementDirection.x -= 1.0f;
-    }
-    if (keyStates[SDL_SCANCODE_DOWN]) {
         localMovementDirection.x += 1.0f;
     }
+    if (keyStates[SDL_SCANCODE_DOWN]) {
+        localMovementDirection.x -= 1.0f;
+    }
     if (keyStates[SDL_SCANCODE_LEFT]) {
-        localMovementDirection.y -= 1.0f;
+        localMovementDirection.y += 1.0f;
     }
     if (keyStates[SDL_SCANCODE_RIGHT]) {
-        localMovementDirection.y += 1.0f;
+        localMovementDirection.y -= 1.0f;
     }
     
     // normalizeVector(&mouseDelta);

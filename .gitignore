@@ -5,6 +5,7 @@
 /source/res/sounds/**
 /source/res/models/**
 /source/res/raw_models/**
+/source/res/shaders/**
 /asset/**
 
 !/source/res/images/default.lif
@@ -12,3 +13,5 @@
 !/source/res/models/cube.mdl
 !/source/res/models/sphere.mdl
 !/source/res/models/plane.mdl
+
+*.spv

@@ -1,521 +1,395 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
-#include <SDL3/SDL.h>
-#include "vector.h"
-#include "mesh.h"
-#include "instances.h"
-#include "asset_manager.h"
-#include "settings.h"
+#include <stddef.h>
 #include "render.h"
-#include "world.h"
 
 #define NEAR_PLANE 0.1f
+#define FAR_PLANE  1000.0f
+#define FOV_DEG    70.0f
+#define DEG2RAD    0.01745329251994329577f
 
-struct SortedFace {
-    int index;
-    float depth;
-    float x1, y1, x2, y2, x3, y3;
-    SDL_FPoint uv1, uv2, uv3;
-};
-
-typedef struct {
-    Vector pos;
-    UV uv;
-} ClipVertex;
-
-static Vector normalizeVec(Vector v) {
-    float lenSq = dot(v, v);
-    if (lenSq <= 1e-12f) {
-        return blankVector();
-    }
-    float invLen = 1.0f / sqrtf(lenSq);
-    linearMult(&v, invLen);
-    return v;
+static Mat4 mat4Identity(void) {
+    Mat4 out = {0};
+    out.m[0]  = 1.0f;
+    out.m[5]  = 1.0f;
+    out.m[10] = 1.0f;
+    out.m[15] = 1.0f;
+    return out;
 }
 
-static Vector rotateByEulerXYZ(Vector v, Vector rot) {
-    float cosX = cosf(rot.x);
-    float sinX = sinf(rot.x);
-    Vector r1 = {
-        v.x,
-        v.y * cosX - v.z * sinX,
-        v.y * sinX + v.z * cosX
-    };
-
-    float cosY = cosf(rot.y);
-    float sinY = sinf(rot.y);
-    Vector r2 = {
-        r1.x * cosY + r1.z * sinY,
-        r1.y,
-        -r1.x * sinY + r1.z * cosY
-    };
-
-    float cosZ = cosf(rot.z);
-    float sinZ = sinf(rot.z);
-    return (Vector){
-        r2.x * cosZ - r2.y * sinZ,
-        r2.x * sinZ + r2.y * cosZ,
-        r2.z
-    };
-}
-
-static Vector rotateByInverseEulerXYZ(Vector v, Vector rot) {
-    float cosZ = cosf(-rot.z);
-    float sinZ = sinf(-rot.z);
-    Vector r1 = {
-        v.x * cosZ - v.y * sinZ,
-        v.x * sinZ + v.y * cosZ,
-        v.z
-    };
-
-    float cosY = cosf(-rot.y);
-    float sinY = sinf(-rot.y);
-    Vector r2 = {
-        r1.x * cosY + r1.z * sinY,
-        r1.y,
-        -r1.x * sinY + r1.z * cosY
-    };
-
-    float cosX = cosf(-rot.x);
-    float sinX = sinf(-rot.x);
-    return (Vector){
-        r2.x,
-        r2.y * cosX - r2.z * sinX,
-        r2.y * sinX + r2.z * cosX
-    };
-}
-
-static Vector getFaceNormalOrFallback(const Face* face, const Vector* storedNormal) {
-    if (storedNormal != NULL) {
-        float lenSq = dot(*storedNormal, *storedNormal);
-        if (lenSq > 1e-12f) {
-            return normalizeVec(*storedNormal);
+static Mat4 mat4Multiply(Mat4 a, Mat4 b) {
+    Mat4 out = {0};
+    for (int col = 0; col < 4; col++) {
+        for (int row = 0; row < 4; row++) {
+            out.m[col * 4 + row] =
+                a.m[0 * 4 + row] * b.m[col * 4 + 0] +
+                a.m[1 * 4 + row] * b.m[col * 4 + 1] +
+                a.m[2 * 4 + row] * b.m[col * 4 + 2] +
+                a.m[3 * 4 + row] * b.m[col * 4 + 3];
         }
     }
-
-    Vector u = *face->b;
-    vectorSub(&u, face->a); // u = b - a
-
-    Vector v = *face->c;
-    vectorSub(&v, face->a); // v = c - a
-
-    return normalizeVec(cross(u, v));
+    return out;
 }
 
-static bool isFaceBackfacingCameraSpace(
-    const Face* face,
-    const Vector* storedNormal,
-    Vector modelRot,
-    Vector cameraRot,
-    Vector pointInCamSpace
-) {
-    Vector normal = getFaceNormalOrFallback(face, storedNormal);
-    normal = normalizeVec(rotateByEulerXYZ(normal, modelRot));
-    Vector camNormal = normalizeVec(rotateByInverseEulerXYZ(normal, cameraRot));
-
-    return dot(camNormal, pointInCamSpace) >= 0.0f;
+static Mat4 mat4Translate(float x, float y, float z) {
+    Mat4 out = mat4Identity();
+    out.m[12] = x;
+    out.m[13] = y;
+    out.m[14] = z;
+    return out;
 }
 
-static float computeFaceBrightness(
-    const Face* face,
-    const Vector* storedNormal,
-    Vector modelRot,
-    Vector lightDirTowardLight,
-    float ambient
-) {
-    Vector normal = getFaceNormalOrFallback(face, storedNormal);
-    normal = normalizeVec(rotateByEulerXYZ(normal, modelRot));
+static Mat4 mat4Scale(float s) {
+    Mat4 out = {0};
+    out.m[0]  = s;
+    out.m[5]  = s;
+    out.m[10] = s;
+    out.m[15] = 1.0f;
+    return out;
+}
 
-    Vector lightDir = normalizeVec(lightDirTowardLight);
+static Mat4 mat4RotateXYZ(Vector rot) {
+    float cx = cosf(rot.x), sx = sinf(rot.x);
+    float cy = cosf(rot.y), sy = sinf(rot.y);
+    float cz = cosf(rot.z), sz = sinf(rot.z);
 
-    float ndotl = dot(normal, lightDir);
-    if (ndotl < 0.0f) {
-        ndotl = 0.0f;
+    Mat4 rx = mat4Identity();
+    rx.m[5]  = cx;  rx.m[9]  = -sx;
+    rx.m[6]  = sx;  rx.m[10] = cx;
+
+    Mat4 ry = mat4Identity();
+    ry.m[0]  = cy;  ry.m[8]  = sy;
+    ry.m[2]  = -sy; ry.m[10] = cy;
+
+    Mat4 rz = mat4Identity();
+    rz.m[0]  = cz;  rz.m[4]  = -sz;
+    rz.m[1]  = sz;  rz.m[5]  = cz;
+
+    return mat4Multiply(rz, mat4Multiply(ry, rx));
+}
+
+static Mat4 mat4InverseRotateXYZ(Vector rot) {
+    float cx = cosf(-rot.x), sx = sinf(-rot.x);
+    float cy = cosf(-rot.y), sy = sinf(-rot.y);
+    float cz = cosf(-rot.z), sz = sinf(-rot.z);
+
+    Mat4 rx = mat4Identity();
+    rx.m[5]  = cx;  rx.m[9]  = -sx;
+    rx.m[6]  = sx;  rx.m[10] = cx;
+
+    Mat4 ry = mat4Identity();
+    ry.m[0]  = cy;  ry.m[8]  = sy;
+    ry.m[2]  = -sy; ry.m[10] = cy;
+
+    Mat4 rz = mat4Identity();
+    rz.m[0]  = cz;  rz.m[4]  = -sz;
+    rz.m[1]  = sz;  rz.m[5]  = cz;
+
+    return mat4Multiply(rx, mat4Multiply(ry, rz));
+}
+
+static Mat4 buildModelMatrix(const Mesh* mesh) {
+    Mat4 t = mat4Translate(mesh->position.x, mesh->position.y, mesh->position.z);
+    Mat4 r = mat4RotateXYZ(mesh->rotation);
+    Mat4 s = mat4Scale(mesh->scale != 0.0f ? mesh->scale : 1.0f);
+    return mat4Multiply(t, mat4Multiply(r, s));
+}
+
+static Mat4 buildViewMatrix(struct Camera camera) {
+    Mat4 r = mat4InverseRotateXYZ(camera.rotation);
+    Mat4 t = mat4Translate(-camera.position.x, -camera.position.y, -camera.position.z);
+    return mat4Multiply(r, t);
+}
+
+static Mat4 buildPerspectiveMatrix(float fovDeg, float aspect, float nearZ, float farZ) {
+    float f = 1.0f / tanf((fovDeg * DEG2RAD) * 0.5f);
+    float rangeInv = 1.0f / (nearZ - farZ);
+
+    Mat4 out = {0};
+    out.m[0]  = f / aspect;
+    out.m[5]  = f;
+    out.m[10] = farZ * rangeInv;
+    out.m[11] = -1.0f;
+    out.m[14] = nearZ * farZ * rangeInv;
+    return out;
+}
+
+static SDL_GPUShader* loadSpirvShader(SDL_GPUDevice* device, const char* path,
+    SDL_GPUShaderStage stage,
+    Uint32 uniformBuffers, Uint32 samplers) {
+    size_t size = 0;
+    void* code = SDL_LoadFile(path, &size);
+    if (!code || size == 0) {
+        fprintf(stderr, "Failed to load shader file: %s\n", path);
+        if (code) SDL_free(code);
+        return NULL;
     }
 
-    float brightness = ambient + (1.0f - ambient) * ndotl;
-    if (brightness < 0.0f) brightness = 0.0f;
-    if (brightness > 1.0f) brightness = 1.0f;
-    return brightness;
+    SDL_GPUShaderCreateInfo info = {0};
+    info.code = (const Uint8*)code;
+    info.code_size = size;
+    info.entrypoint = "main";
+    info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    info.stage = stage;
+    info.num_uniform_buffers = uniformBuffers;
+    info.num_samplers = samplers;
+
+    SDL_GPUShader* shader = SDL_CreateGPUShader(device, &info);
+    SDL_free(code);
+
+    if (!shader) {
+        fprintf(stderr, "Failed to create GPU shader (%s): %s\n", path, SDL_GetError());
+    }
+    return shader;
 }
 
-// Transforms a point into camera space without rejecting behind-camera points.
-static void transformToCameraSpaceUnclipped(
-    const Vector* v,
-    Vector modelPos,
-    Vector modelRot,
-    struct Camera camera,
-    Vector* outCamSpace
-) {
-    Vector nv = *v;
-
-    {
-        float cosX = cosf(modelRot.x);
-        float sinX = sinf(modelRot.x);
-        float y1 = nv.y * cosX - nv.z * sinX;
-        float z1 = nv.y * sinX + nv.z * cosX;
-        nv.y = y1; nv.z = z1;
-
-        float cosY = cosf(modelRot.y);
-        float sinY = sinf(modelRot.y);
-        float x1 = nv.x * cosY + nv.z * sinY;
-        float z2 = -nv.x * sinY + nv.z * cosY;
-        nv.x = x1; nv.z = z2;
-
-        float cosZ = cosf(modelRot.z);
-        float sinZ = sinf(modelRot.z);
-        float x2 = nv.x * cosZ - nv.y * sinZ;
-        float y2 = nv.x * sinZ + nv.y * cosZ;
-        nv.x = x2; nv.y = y2;
+static SDL_GPUTextureFormat chooseDepthFormat(SDL_GPUDevice* device) {
+    if (SDL_GPUTextureSupportsFormat(device, SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+            SDL_GPU_TEXTURETYPE_2D,
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) {
+        return SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
     }
-
-    vectorAdd(&nv, &modelPos);
-    vectorSub(&nv, &camera.position);
-
-    {
-        float cosZ = cosf(-camera.rotation.z);
-        float sinZ = sinf(-camera.rotation.z);
-        float x1 = nv.x * cosZ - nv.y * sinZ;
-        float y1 = nv.x * sinZ + nv.y * cosZ;
-        nv.x = x1; nv.y = y1;
-
-        float cosY = cosf(-camera.rotation.y);
-        float sinY = sinf(-camera.rotation.y);
-        float x2 = nv.x * cosY + nv.z * sinY;
-        float z1 = -nv.x * sinY + nv.z * cosY;
-        nv.x = x2; nv.z = z1;
-
-        float cosX = cosf(-camera.rotation.x);
-        float sinX = sinf(-camera.rotation.x);
-        float y2 = nv.y * cosX - nv.z * sinX;
-        float z2 = nv.y * sinX + nv.z * cosX;
-        nv.y = y2; nv.z = z2;
-    }
-
-    *outCamSpace = nv;
+    return SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
 }
 
-bool getVectorCameraSpace(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, Vector* outCamSpace) {
-    Vector nv;
-    transformToCameraSpaceUnclipped(v, modelPos, modelRot, camera, &nv);
-
-    if (nv.z <= 0.0f) {
-        return false; // Behind camera
+bool ensureDepthTexture(Renderer* r, Uint32 width, Uint32 height) {
+    if (!r || !r->device || width == 0 || height == 0) {
+        return false;
+    }
+    if (r->depthTexture && r->depthWidth == width && r->depthHeight == height) {
+        return true;
     }
 
-    *outCamSpace = nv;
-    return true;
-}
+    if (r->depthTexture) {
+        SDL_ReleaseGPUTexture(r->device, r->depthTexture);
+        r->depthTexture = NULL;
+    }
 
-bool vectorToScreenPos(Vector* v, Vector modelPos, Vector modelRot, struct Camera camera, float* x, float* y) {
-    Vector nv;
-    if (!getVectorCameraSpace(v, modelPos, modelRot, camera, &nv)) {
+    SDL_GPUTextureCreateInfo info = {0};
+    info.type = SDL_GPU_TEXTURETYPE_2D;
+    info.format = r->depthFormat;
+    info.width = width;
+    info.height = height;
+    info.layer_count_or_depth = 1;
+    info.num_levels = 1;
+    info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+
+    r->depthTexture = SDL_CreateGPUTexture(r->device, &info);
+    if (!r->depthTexture) {
+        fprintf(stderr, "Failed to create depth texture: %s\n", SDL_GetError());
         return false;
     }
 
-    float fovDegrees = 70.0f;
-    float fovRadians = fovDegrees * (3.14159265f / 180.0f);
-    float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
-
-    float centerX = INTERNAL_WIDTH / 2.0f;
-    float centerY = INTERNAL_HEIGHT / 2.0f;
-
-    *x = (nv.x / nv.z) * fovScale + centerX;
-    *y = centerY - (nv.y / nv.z) * fovScale;
-
+    r->depthWidth = width;
+    r->depthHeight = height;
     return true;
 }
 
-int compareFaces(const void* a, const void* b) {
-    const struct SortedFace* fa = (const struct SortedFace*)a;
-    const struct SortedFace* fb = (const struct SortedFace*)b;
-    if (fa->depth < fb->depth) return 1;
-    if (fa->depth > fb->depth) return -1;
-    return 0;
-}
+bool initRenderer(Renderer* r, SDL_Window* window, const char* vertSpvPath, const char* fragSpvPath) {
+    if (!r || !window) return false;
+    memset(r, 0, sizeof(*r));
+    r->window = window;
 
-static ClipVertex lerpClipVertex(ClipVertex a, ClipVertex b, float nearZ) {
-    float denom = b.pos.z - a.pos.z;
-    if (fabsf(denom) <= 1e-6f) {
-        return a;
+    r->device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, NULL);
+    if (!r->device) {
+        fprintf(stderr, "SDL_CreateGPUDevice failed: %s\n", SDL_GetError());
+        return false;
     }
-    float t = (nearZ - a.pos.z) / denom;
-    return (ClipVertex){
-        .pos = {
-            a.pos.x + (b.pos.x - a.pos.x) * t,
-            a.pos.y + (b.pos.y - a.pos.y) * t,
-            nearZ
-        },
-        .uv = {
-            a.uv.u + (b.uv.u - a.uv.u) * t,
-            a.uv.v + (b.uv.v - a.uv.v) * t
-        }
+
+    if (!SDL_ClaimWindowForGPUDevice(r->device, window)) {
+        fprintf(stderr, "SDL_ClaimWindowForGPUDevice failed: %s\n", SDL_GetError());
+        SDL_DestroyGPUDevice(r->device);
+        r->device = NULL;
+        return false;
+    }
+
+    r->depthFormat = chooseDepthFormat(r->device);
+
+    SDL_GPUSamplerCreateInfo samplerInfo = {0};
+    samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
+    samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
+    samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+    samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+
+    r->sampler = SDL_CreateGPUSampler(r->device, &samplerInfo);
+    if (!r->sampler) {
+        fprintf(stderr, "SDL_CreateGPUSampler failed: %s\n", SDL_GetError());
+        destroyRenderer(r);
+        return false;
+    }
+
+    SDL_GPUShader* vertShader = loadSpirvShader(r->device, vertSpvPath, SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
+    SDL_GPUShader* fragShader = loadSpirvShader(r->device, fragSpvPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
+    if (!vertShader || !fragShader) {
+        if (vertShader) SDL_ReleaseGPUShader(r->device, vertShader);
+        if (fragShader) SDL_ReleaseGPUShader(r->device, fragShader);
+        destroyRenderer(r);
+        return false;
+    }
+
+    SDL_GPUVertexBufferDescription vbDesc = {0};
+    vbDesc.slot = 0;
+    vbDesc.pitch = sizeof(GpuVertex);
+    vbDesc.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+
+    SDL_GPUVertexAttribute attrs[3] = {
+        { .location = 0, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = offsetof(GpuVertex, pos) },
+        { .location = 1, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = offsetof(GpuVertex, normal) },
+        { .location = 2, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = offsetof(GpuVertex, uv) }
     };
-}
 
-static int clipTriangleNearPlane(ClipVertex a, ClipVertex b, ClipVertex c, float nearZ, ClipVertex outTris[2][3]) {
-    ClipVertex poly[4];
-    int polyCount = 0;
+    SDL_GPUColorTargetDescription colorDesc = {0};
+    colorDesc.format = SDL_GetGPUSwapchainTextureFormat(r->device, window);
 
-    ClipVertex src[3] = { a, b, c };
-    ClipVertex prev = src[2];
-    bool prevInside = (prev.pos.z >= nearZ);
+    SDL_GPUGraphicsPipelineCreateInfo pipeInfo = {0};
+    pipeInfo.vertex_shader = vertShader;
+    pipeInfo.fragment_shader = fragShader;
+    pipeInfo.vertex_input_state.vertex_buffer_descriptions = &vbDesc;
+    pipeInfo.vertex_input_state.num_vertex_buffers = 1;
+    pipeInfo.vertex_input_state.vertex_attributes = attrs;
+    pipeInfo.vertex_input_state.num_vertex_attributes = 3;
+    pipeInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pipeInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    pipeInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+    pipeInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    pipeInfo.depth_stencil_state.enable_depth_test = true;
+    pipeInfo.depth_stencil_state.enable_depth_write = true;
+    pipeInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+    pipeInfo.target_info.color_target_descriptions = &colorDesc;
+    pipeInfo.target_info.num_color_targets = 1;
+    pipeInfo.target_info.has_depth_stencil_target = true;
+    pipeInfo.target_info.depth_stencil_format = r->depthFormat;
 
-    for (int i = 0; i < 3; i++) {
-        ClipVertex curr = src[i];
-        bool currInside = (curr.pos.z >= nearZ);
+    r->pipeline = SDL_CreateGPUGraphicsPipeline(r->device, &pipeInfo);
 
-        if (currInside) {
-            if (!prevInside) {
-                poly[polyCount++] = lerpClipVertex(prev, curr, nearZ);
-            }
-            poly[polyCount++] = curr;
-        } else if (prevInside) {
-            poly[polyCount++] = lerpClipVertex(prev, curr, nearZ);
-        }
+    SDL_ReleaseGPUShader(r->device, vertShader);
+    SDL_ReleaseGPUShader(r->device, fragShader);
 
-        prev = curr;
-        prevInside = currInside;
+    if (!r->pipeline) {
+        fprintf(stderr, "SDL_CreateGPUGraphicsPipeline failed: %s\n", SDL_GetError());
+        destroyRenderer(r);
+        return false;
     }
 
-    if (polyCount < 3) {
-        return 0;
-    }
-
-    outTris[0][0] = poly[0];
-    outTris[0][1] = poly[1];
-    outTris[0][2] = poly[2];
-
-    if (polyCount == 4) {
-        outTris[1][0] = poly[0];
-        outTris[1][1] = poly[2];
-        outTris[1][2] = poly[3];
-        return 2;
-    }
-
-    return 1;
-}
-
-static bool isTriangleOnScreen(float x1, float y1, float x2, float y2, float x3, float y3) {
-    float minX = fminf(x1, fminf(x2, x3));
-    float maxX = fmaxf(x1, fmaxf(x2, x3));
-    float minY = fminf(y1, fminf(y2, y3));
-    float maxY = fmaxf(y1, fmaxf(y2, y3));
-
-    if (maxX < 0.0f || minX > (float)INTERNAL_WIDTH) return false;
-    if (maxY < 0.0f || minY > (float)INTERNAL_HEIGHT) return false;
     return true;
 }
 
-static void computeTriplanarUVs(
-    const Vector* a,
-    const Vector* b,
-    const Vector* c,
-    const Vector* faceNormal,
-    float scale,
-    UV* uvA,
-    UV* uvB,
-    UV* uvC
-) {
-    float nx, ny, nz;
+void renderMesh(Renderer* r, SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
+                const Mesh* mesh, const Mat4* viewProj, AssetManager* assetManager) {
+    if (!r || !cmd || !pass || !mesh || !viewProj || !assetManager) return;
+    if (!mesh->gpuVertexBuffer || mesh->gpuVertexCount <= 0) return;
 
-    if (faceNormal != NULL && dot(*faceNormal, *faceNormal) > 1e-12f) {
-        nx = faceNormal->x;
-        ny = faceNormal->y;
-        nz = faceNormal->z;
-    } else {
-        float ux = b->x - a->x;
-        float uy = b->y - a->y;
-        float uz = b->z - a->z;
+    int texIdx = lookForImageAsset(assetManager, mesh->texture);
+    if (texIdx < 0) return;
 
-        float vx = c->x - a->x;
-        float vy = c->y - a->y;
-        float vz = c->z - a->z;
+    SDL_GPUTexture* gpuTex = assetManager->textures[texIdx].texture;
+    if (!gpuTex) return;
 
-        nx = uy * vz - uz * vy;
-        ny = uz * vx - ux * vz;
-        nz = ux * vy - uy * vx;
-    }
+    Mat4 model = buildModelMatrix(mesh);
+    VertexUniforms vUniforms = {
+        .mvp = mat4Multiply(*viewProj, model),
+        .model = model
+    };
+    SDL_PushGPUVertexUniformData(cmd, 0, &vUniforms, sizeof(vUniforms));
 
-    float ax = fabsf(nx);
-    float ay = fabsf(ny);
-    float az = fabsf(nz);
+    FragmentUniforms fUniforms = {
+        .lightDir = { -0.5f, 0.8f, -0.3f },
+        .ambient = 0.2f,
+        ._pad = { 0.0f, 0.0f }
+    };
+    SDL_PushGPUFragmentUniformData(cmd, 0, &fUniforms, sizeof(fUniforms));
 
-    if (ax >= ay && ax >= az) {
-        *uvA = (UV){ a->z * scale, a->y * scale };
-        *uvB = (UV){ b->z * scale, b->y * scale };
-        *uvC = (UV){ c->z * scale, c->y * scale };
-    } else if (ay >= ax && ay >= az) {
-        *uvA = (UV){ a->x * scale, a->z * scale };
-        *uvB = (UV){ b->x * scale, b->z * scale };
-        *uvC = (UV){ c->x * scale, c->z * scale };
-    } else {
-        *uvA = (UV){ a->x * scale, a->y * scale };
-        *uvB = (UV){ b->x * scale, b->y * scale };
-        *uvC = (UV){ c->x * scale, c->y * scale };
-    }
+    SDL_GPUBufferBinding vbBinding = {
+        .buffer = mesh->gpuVertexBuffer,
+        .offset = 0
+    };
+    SDL_BindGPUVertexBuffers(pass, 0, &vbBinding, 1);
+
+    SDL_GPUTextureSamplerBinding texBinding = {
+        .texture = gpuTex,
+        .sampler = r->sampler
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, &texBinding, 1);
+
+    SDL_DrawGPUPrimitives(pass, (Uint32)mesh->gpuVertexCount, 1, 0, 0);
 }
 
-void renderModel(SDL_Renderer* renderer, Mesh* model, struct Camera camera, AssetManager* assetManager) {
-    if (!model || model->faceAmount <= 0) return;
+void renderWorld(Renderer* r, World* world, struct Camera camera, AssetManager* assetManager) {
+    if (!r || !r->device || !r->pipeline || !world || !assetManager) return;
 
-    int maxCandidateTris = model->faceAmount * 2;
-    struct SortedFace* sortedFaces = (struct SortedFace*)malloc((size_t)maxCandidateTris * sizeof(struct SortedFace));
-    if (!sortedFaces) return;
-
-    int validFaceCount = 0;
-
-    float fovDegrees = 70.0f;
-    float fovRadians = fovDegrees * (3.14159265f / 180.0f);
-    float fovScale = (INTERNAL_HEIGHT / 2.0f) / tanf(fovRadians / 2.0f);
-    float centerX = INTERNAL_WIDTH / 2.0f;
-    float centerY = INTERNAL_HEIGHT / 2.0f;
-    float fallbackUVScale = 1.0f;
-
-    for (int i = 0; i < model->faceAmount; i++) {
-        const Face* face = &model->faces[i];
-        const Vector* faceNormal = (model->normals != NULL) ? &model->normals[i] : NULL;
-
-        Vector cA, cB, cC;
-        transformToCameraSpaceUnclipped(face->a, model->position, model->rotation, camera, &cA);
-        transformToCameraSpaceUnclipped(face->b, model->position, model->rotation, camera, &cB);
-        transformToCameraSpaceUnclipped(face->c, model->position, model->rotation, camera, &cC);
-
-        if (isFaceBackfacingCameraSpace(face, faceNormal, model->rotation, camera.rotation, cA)) {
-            continue;
-        }
-
-        UV uvA, uvB, uvC;
-        if (face->hasUVs) {
-            uvA = face->uvA;
-            uvB = face->uvB;
-            uvC = face->uvC;
-        } else {
-            computeTriplanarUVs(face->a, face->b, face->c, faceNormal, fallbackUVScale, &uvA, &uvB, &uvC);
-        }
-
-        ClipVertex vA = { cA, uvA };
-        ClipVertex vB = { cB, uvB };
-        ClipVertex vC = { cC, uvC };
-
-        ClipVertex clipped[2][3];
-        int triCount = clipTriangleNearPlane(vA, vB, vC, NEAR_PLANE, clipped);
-
-        for (int t = 0; t < triCount; t++) {
-            Vector p1 = clipped[t][0].pos;
-            Vector p2 = clipped[t][1].pos;
-            Vector p3 = clipped[t][2].pos;
-
-            float avgDepth = (p1.z + p2.z + p3.z) / 3.0f;
-
-            float x1 = (p1.x / p1.z) * fovScale + centerX;
-            float y1 = centerY - (p1.y / p1.z) * fovScale;
-
-            float x2 = (p2.x / p2.z) * fovScale + centerX;
-            float y2 = centerY - (p2.y / p2.z) * fovScale;
-
-            float x3 = (p3.x / p3.z) * fovScale + centerX;
-            float y3 = centerY - (p3.y / p3.z) * fovScale;
-
-            if (!isTriangleOnScreen(x1, y1, x2, y2, x3, y3)) {
-                continue;
-            }
-
-            sortedFaces[validFaceCount++] = (struct SortedFace){
-                .index = i,
-                .depth = avgDepth,
-                .x1 = x1, .y1 = y1,
-                .x2 = x2, .y2 = y2,
-                .x3 = x3, .y3 = y3,
-                .uv1 = { clipped[t][0].uv.u, clipped[t][0].uv.v },
-                .uv2 = { clipped[t][1].uv.u, clipped[t][1].uv.v },
-                .uv3 = { clipped[t][2].uv.u, clipped[t][2].uv.v }
-            };
-        }
-    }
-
-    if (validFaceCount <= 0) {
-        free(sortedFaces);
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(r->device);
+    if (!cmd) {
+        fprintf(stderr, "SDL_AcquireGPUCommandBuffer failed: %s\n", SDL_GetError());
         return;
     }
 
-    qsort(sortedFaces, (size_t)validFaceCount, sizeof(struct SortedFace), compareFaces);
-
-    int totalVerts = validFaceCount * 3;
-    SDL_Vertex* vert = (SDL_Vertex*)malloc((size_t)totalVerts * sizeof(SDL_Vertex));
-    int* indices = (int*)malloc((size_t)totalVerts * sizeof(int));
-
-    if (!vert || !indices) {
-        free(vert);
-        free(indices);
-        free(sortedFaces);
+    SDL_GPUTexture* swapchainTex = NULL;
+    Uint32 w = 0, h = 0;
+    if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, r->window, &swapchainTex, &w, &h)) {
+        fprintf(stderr, "SDL_WaitAndAcquireGPUSwapchainTexture failed: %s\n", SDL_GetError());
+        SDL_CancelGPUCommandBuffer(cmd);
         return;
     }
 
-    SDL_Texture* texture = assetManager->textures[lookForImageAsset(assetManager, model->texture)].texture;
-
-    Vector lightDir = { -0.5f, 0.8f, -0.3f }; // Points toward the light source
-    float ambient = 0.2f;
-
-    int base = 0;
-    for (int i = 0; i < validFaceCount; i++) {
-        int faceIdx = sortedFaces[i].index;
-        const Face* face = &model->faces[faceIdx];
-        const Vector* faceNormal = (model->normals != NULL) ? &model->normals[faceIdx] : NULL;
-
-        float b = computeFaceBrightness(face, faceNormal, model->rotation, lightDir, ambient);
-        SDL_FColor faceColor = { b, b, b, 1.0f };
-
-        vert[base + 0] = (SDL_Vertex){ {sortedFaces[i].x1, sortedFaces[i].y1}, faceColor, sortedFaces[i].uv1 };
-        vert[base + 1] = (SDL_Vertex){ {sortedFaces[i].x2, sortedFaces[i].y2}, faceColor, sortedFaces[i].uv2 };
-        vert[base + 2] = (SDL_Vertex){ {sortedFaces[i].x3, sortedFaces[i].y3}, faceColor, sortedFaces[i].uv3 };
-
-        indices[base + 0] = base + 0;
-        indices[base + 1] = base + 1;
-        indices[base + 2] = base + 2;
-
-        base += 3;
+    if (!swapchainTex || w == 0 || h == 0) {
+        SDL_SubmitGPUCommandBuffer(cmd);
+        return;
     }
 
-    SDL_RenderGeometry(renderer, texture, vert, totalVerts, indices, totalVerts);
-
-    free(vert);
-    free(indices);
-    free(sortedFaces);
-}
-
-void swapDrawOrder(int* a, int* b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-int sortOrderPartition(World* world, Vector position, int low, int high) {
-    int pivotIndex = low + (high - low) / 2;
-    float pivotDist = vectorMag(world->meshes[world->drawOrder[pivotIndex]].position, position);
-
-    swapDrawOrder(&world->drawOrder[pivotIndex], &world->drawOrder[high]);
-
-    int i = low - 1;
-    for (int j = low; j < high; j++) {
-        float distJ = vectorMag(world->meshes[world->drawOrder[j]].position, position);
-        if (distJ > pivotDist) {
-            i++;
-            swapDrawOrder(&world->drawOrder[i], &world->drawOrder[j]);
-        }
+    if (!ensureDepthTexture(r, w, h)) {
+        SDL_CancelGPUCommandBuffer(cmd);
+        return;
     }
 
-    i++;
-    swapDrawOrder(&world->drawOrder[i], &world->drawOrder[high]);
-    return i;
+    SDL_GPUColorTargetInfo colorTarget = {0};
+    colorTarget.texture = swapchainTex;
+    colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+    colorTarget.clear_color = (SDL_FColor){ 0.08f, 0.09f, 0.12f, 1.0f };
+
+    SDL_GPUDepthStencilTargetInfo depthTarget = {0};
+    depthTarget.texture = r->depthTexture;
+    depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    depthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depthTarget.clear_depth = 1.0f;
+
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmd, &colorTarget, 1, &depthTarget);
+    if (!pass) {
+        fprintf(stderr, "SDL_BeginGPURenderPass failed: %s\n", SDL_GetError());
+        SDL_CancelGPUCommandBuffer(cmd);
+        return;
+    }
+
+    SDL_BindGPUGraphicsPipeline(pass, r->pipeline);
+
+    float aspect = (float)w / (float)h;
+    Mat4 view = buildViewMatrix(camera);
+    Mat4 proj = buildPerspectiveMatrix(FOV_DEG, aspect, NEAR_PLANE, FAR_PLANE);
+    Mat4 viewProj = mat4Multiply(proj, view);
+
+    for (int i = 0; i < world->worldSize; i++) {
+        renderMesh(r, cmd, pass, &world->meshes[i], &viewProj, assetManager);
+    }
+
+    SDL_EndGPURenderPass(pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
 }
 
-void sortDrawOrder(World* world, Vector position, int low, int high) {
-    if (low < high) {
-        int pi = sortOrderPartition(world, position, low, high);
-        sortDrawOrder(world, position, low, pi - 1);
-        sortDrawOrder(world, position, pi + 1, high);
+void destroyRenderer(Renderer* r) {
+    if (!r) return;
+
+    if (r->device) {
+        SDL_WaitForGPUIdle(r->device);
+        if (r->pipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->pipeline);
+        if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
+        if (r->sampler) SDL_ReleaseGPUSampler(r->device, r->sampler);
+        if (r->window) SDL_ReleaseWindowFromGPUDevice(r->device, r->window);
+        SDL_DestroyGPUDevice(r->device);
     }
+
+    memset(r, 0, sizeof(*r));
 }

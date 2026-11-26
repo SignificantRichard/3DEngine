@@ -2,9 +2,8 @@
  * @file main.c
  * @author Wen Xin Gao (gaowenxin2007@gmail.com)
  * @brief 
- * @version 0.1
- * @date 2026-11-18
- * 
+ * @version 0.2
+ * @date 2026-11-26
  */
 
 #include <SDL3/SDL.h>
@@ -25,19 +24,54 @@
 #include "render.h"
 #include "ray.h"
 #include "ui.h"
+#include "ui_render.h"
 #include "sound.h"
 #include "controller.h"
 #include "../world/entry.h"
 
 #include "settings.h"
 
-void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) {
-    SDL_Gamepad* gamepad = NULL;
+static void uploadWorldMeshesToGPU(World* world, SDL_GPUDevice* device) {
+    if (!world || !device || world->worldSize <= 0) return;
 
-    // create test ui
-    TTF_TextEngine* textEngine = createRendererEngine(renderer);
-    TTF_Font* font = createFirstAvailableFont(12);
-    Label label = createLabel(textEngine, font, "TEST BUILD: TEST BUILD", 0, 0);
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+    if (!cmd) {
+        fprintf(stderr, "Failed to acquire command buffer for mesh upload: %s\n", SDL_GetError());
+        return;
+    }
+
+    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
+    if (!copyPass) {
+        fprintf(stderr, "Failed to begin copy pass for mesh upload: %s\n", SDL_GetError());
+        SDL_CancelGPUCommandBuffer(cmd);
+        return;
+    }
+
+    for (int i = 0; i < world->worldSize; i++) {
+        Mesh* m = &world->meshes[i];
+        if (!m->gpuVertices && m->faceAmount > 0) {
+            buildMeshGpuVertices(m);
+        }
+        uploadMeshToGPU(m, device, copyPass);
+    }
+
+    SDL_EndGPUCopyPass(copyPass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_WaitForGPUIdle(device);
+}
+
+static void releaseWorldGPUBuffers(World* world, SDL_GPUDevice* device) {
+    if (!world || !device) return;
+    for (int i = 0; i < world->worldSize; i++) {
+        if (world->meshes[i].gpuVertexBuffer) {
+            SDL_ReleaseGPUBuffer(device, world->meshes[i].gpuVertexBuffer);
+            world->meshes[i].gpuVertexBuffer = NULL;
+        }
+    }
+}
+
+void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, UiRenderer* uiRenderer) {
+    SDL_Gamepad* gamepad = NULL;
 
     Body player = { .position = blankVector(), .rotation = blankVector(), .movementDirection = blankVector() };
     struct Camera camera = { .position = blankVector(), .rotation = blankVector() };
@@ -45,18 +79,23 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
     bool running = true;
 
     const uint64_t freq = SDL_GetPerformanceFrequency();
-    const double targetFrameSec = (frameRate > 0.0) ? (1.0 / (double)frameRate) : 0.0;
+    const double targetFrameSec = (FRAME_RATE > 0.0) ? (1.0 / (double)FRAME_RATE) : 0.0;
+
+    TTF_Font* font = createFirstAvailableFont(14.0f);
+    Label fpsLabel = createLabel(font, "FPS: --.-", 8, 8);
+    if (gpuRenderer) {
+        syncLabelTexture(&fpsLabel, gpuRenderer->device);
+    }
+
+    double fpsAccumTimeMs = 0.0;
+    uint32_t fpsAccumFrames = 0;
+    char fpsText[64] = "FPS: --.-";
 
     uint64_t frameStart = SDL_GetPerformanceCounter();
     double deltaTimeMs = (targetFrameSec > 0.0) ? (targetFrameSec * 1000.0) : 16.667;
     uint64_t tick = 0;
 
     while (running) {
-        double fps = (deltaTimeMs > 0.0) ? (1000.0 / deltaTimeMs) : 0.0;
-        char strFPS[64];
-        snprintf(strFPS, sizeof(strFPS), "FPS: %.1f", fps);
-        setLabelText(&label, strFPS);
-
         // events and input
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -80,8 +119,6 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
             }
         }
 
-        sortDrawOrder(world, camera.position, 0, world->worldSize - 1);
-
         { // gravity logic
             RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), world);
             if (!ray.hit) {
@@ -101,7 +138,6 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
         }
 
         { // movement direction
-
             pollInput(&player, deltaTimeMs, gamepad);
             vectorAdd(&player.rotation, &player.rotationDirection);
 
@@ -226,26 +262,19 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
         camera.rotation = player.rotation;
 
         { // player element
-            Vector lVector = lookVector(camera.rotation);
-            linearMult(&lVector, 3.0f);
-            world->meshes[1].position = lVector;
-            Vector rVector = rightVector(camera.rotation);
-            linearMult(&rVector, 2.5f);
-            vectorAdd(&world->meshes[1].position, &rVector);
-            vectorAdd(&world->meshes[1].position, &camera.position);
-            world->meshes[1].rotation = camera.rotation;
+            if (world->worldSize > 1) {
+                Vector lVector = lookVector(camera.rotation);
+                linearMult(&lVector, 3.0f);
+                world->meshes[1].position = lVector;
+                Vector rVector = rightVector(camera.rotation);
+                linearMult(&rVector, 2.5f);
+                vectorAdd(&world->meshes[1].position, &rVector);
+                vectorAdd(&world->meshes[1].position, &camera.position);
+                world->meshes[1].rotation = camera.rotation;
+            }
         }
 
-        SDL_SetRenderDrawColor(renderer, SKY_COLOR, 255);
-        SDL_RenderClear(renderer);
-
-        for (int i = 0; i < world->worldSize; i++) {
-            renderModel(renderer, &world->meshes[world->drawOrder[i]], camera, assetManager);
-        }
-
-        renderLabel(&label);
-
-        SDL_RenderPresent(renderer);
+        renderWorld(gpuRenderer, world, camera, assetManager);
 
         if (targetFrameSec > 0.0) {
             uint64_t beforeSleep = SDL_GetPerformanceCounter();
@@ -262,36 +291,63 @@ void gameLoop(World* world, AssetManager* assetManager, SDL_Renderer* renderer) 
         deltaTimeMs = ((double)(frameEnd - frameStart) * 1000.0) / (double)freq;
         frameStart = frameEnd;
 
+        printf("%lf\n", 1000.0 / deltaTimeMs);
+
         tick++;
     }
+
+    if (gamepad) {
+        SDL_CloseGamepad(gamepad);
+    }
+
+    destroyUiRenderer(uiRenderer, gpuRenderer);
+    destroyLabel(&fpsLabel, gpuRenderer ? gpuRenderer->device : NULL);
+    destroyFont(font);
 }
 
 int main(int argc, char* argv[]) {
+    (void)argc;
+    (void)argv;
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
         return 1;
     }
 
     if (!TTF_Init()) {
-        printf("SDL TTF FAILED\f");
+        printf("SDL TTF FAILED\n");
+        SDL_Quit();
         return 1;
     }
 
-    SDL_Window* window = NULL;
-    SDL_Renderer* renderer = NULL;
-    if (!SDL_CreateWindowAndRenderer("Engine", INTERNAL_WIDTH, INTERNAL_HEIGHT, 0, &window, &renderer)) {
-        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
+    SDL_Window* window = SDL_CreateWindow("Engine", INTERNAL_WIDTH, INTERNAL_HEIGHT, 0);
+    if (!window) {
+        SDL_Log("Couldn't create window: %s", SDL_GetError());
+        TTF_Quit();
         SDL_Quit();
+        return 1;
+    }
+
+    Renderer gpuRenderer;
+    if (!initRenderer(&gpuRenderer, window, "./source/res/shaders/mesh.vert.spv", "./source/res/shaders/mesh.frag.spv")) {
+        SDL_DestroyWindow(window);
+        TTF_Quit();
+        SDL_Quit();
+        return 1;
+    }
+
+    UiRenderer uiRenderer;
+    if (!initUiRenderer(&uiRenderer, &gpuRenderer, "./source/res/shaders/ui.vert.spv", "./source/res/shaders/mesh.frag.spv", INTERNAL_WIDTH, INTERNAL_HEIGHT)) {
         return 1;
     }
 
     // set mouse lock
     SDL_SetWindowRelativeMouseMode(window, 1);
 
-    AssetManager assetManager = createAssetManager(renderer);
+    AssetManager assetManager = createAssetManager(gpuRenderer.device);
 
     World world = createWorld();
-    
+
     loadAndAddModel(&world, "./source/res/models/e1m1.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
     loadAndAddModel(&world, "./source/res/models/sword.mdl");
@@ -305,12 +361,16 @@ int main(int argc, char* argv[]) {
     world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
     rescaleMesh(&world.meshes[0], 100.0f);
 
-    gameLoop(&world, &assetManager, renderer);
+    uploadWorldMeshesToGPU(&world, gpuRenderer.device);
 
+    gameLoop(&world, &assetManager, &gpuRenderer, &uiRenderer);
+
+    releaseWorldGPUBuffers(&world, gpuRenderer.device);
     destroyWorld(&world);
-
-    SDL_DestroyRenderer(renderer);
+    destroyAssetManager(&assetManager);
+    destroyRenderer(&gpuRenderer);
     SDL_DestroyWindow(window);
+    TTF_Quit();
     SDL_Quit();
 
     return 0;
