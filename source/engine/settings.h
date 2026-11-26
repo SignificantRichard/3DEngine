@@ -20,12 +20,12 @@
 #define WALK_SPEED 0.1f
 #define RUN_SPEED 0.2f
 
-#define JUMP_POWER 0.25f
+#define JUMP_POWER 0.15f
 #define CROUCH_HEIGHT 0.5f
 
 // Game Data
 
-#define GRAVITY 0.00125f
+#define GRAVITY 9.8f
 #define TERMINAL_VELOCITY 0.8f
 
 // Inventory Data

@@ -120,21 +120,26 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
         }
 
         { // gravity logic
-            RaycastResult ray = raycast(camera.position, createVector(0.0f, -10.0f, 0.0f), world);
-            if (!ray.hit) {
-                if (player.velocity.y > -TERMINAL_VELOCITY) {
-                    player.velocity.y -= GRAVITY * deltaTimeMs;
+            Vector origin = createVector(0.0f, 1.0f, 0.0f);
+            vectorAdd(&origin, &camera.position);
+            RaycastResult ray = raycast(camera.position, createVector(0.0f, player.velocity.y - 20.0f, 0.0f), world);
+            
+            
+            if (ray.hit) {
+                int nextY = player.position.y + player.velocity.y;
+                int groundY = ray.position.y + 10.0f;
+                
+                if (nextY < groundY) {
+                    player.position.y = groundY;
                 }
-                player.touchingGround = 0;
+
+                player.velocity.y = 0.0f;
+                player.touchingGround = 1;
             } else {
-                if (player.velocity.y <= 0.0f) {
-                    if (ray.distance > 0.8f) { // for stairs
-                        player.position.y = ray.position.y + player.hipHeight - 0.01f;
-                    }
-                    player.velocity.y = 0;
-                    player.touchingGround = 1;
-                }
+                player.velocity.y -= GRAVITY * deltaTimeMs * 0.0001f;
+                player.touchingGround = 0;
             }
+
         }
 
         { // movement direction
@@ -238,18 +243,6 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
 
             player.position.y += player.velocity.y * deltaTimeMs;
 
-            Vector downRayOrigin = createVector(player.position.x, player.position.y, player.position.z);
-            float groundProbeLen = EYE_HEIGHT + 1.0f;
-            RaycastResult groundRay = raycast(downRayOrigin, createVector(0.0f, -groundProbeLen, 0.0f), world);
-
-            if (groundRay.hit && groundRay.distance <= EYE_HEIGHT && player.velocity.y <= 0.0f) {
-                player.position.y = groundRay.position.y + EYE_HEIGHT;
-                player.velocity.y = 0.0f;
-                player.touchingGround = 1;
-            } else {
-                player.touchingGround = 0;
-            }
-
             camera.position = player.position;
             camera.rotation = player.rotation;
         }
@@ -262,16 +255,17 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
         camera.rotation = player.rotation;
 
         { // player element
-            if (world->worldSize > 1) {
-                Vector lVector = lookVector(camera.rotation);
-                linearMult(&lVector, 3.0f);
-                world->meshes[1].position = lVector;
-                Vector rVector = rightVector(camera.rotation);
-                linearMult(&rVector, 2.5f);
-                vectorAdd(&world->meshes[1].position, &rVector);
-                vectorAdd(&world->meshes[1].position, &camera.position);
-                world->meshes[1].rotation = camera.rotation;
-            }
+            Vector lVector = lookVector(camera.rotation);
+            linearMult(&lVector, 1.5f);
+            Vector rVector = rightVector(camera.rotation);
+            linearMult(&rVector, 1.5f);
+            Vector uVector = upVector(camera.rotation);
+            linearMult(&uVector, 0.5f);
+            world->meshes[2].position = camera.position;
+            vectorAdd(&world->meshes[2].position, &rVector);
+            vectorAdd(&world->meshes[2].position, &lVector);
+            vectorAdd(&world->meshes[2].position, &uVector);
+            world->meshes[2].rotation = camera.rotation;
         }
 
         renderWorld(gpuRenderer, world, camera, assetManager);
@@ -350,15 +344,16 @@ int main(int argc, char* argv[]) {
 
     loadAndAddModel(&world, "./source/res/models/e1m1.mdl");
     loadImageAsset(&assetManager, "./source/res/images/alternate.lif");
-    loadAndAddModel(&world, "./source/res/models/sword.mdl");
     loadAndAddModel(&world, "./source/res/models/cube.mdl");
+    loadAndAddModel(&world, "./source/res/models/sword.mdl");
     world.meshes[0].texture = "./source/res/images/alternate.lif";
+    world.meshes[1].texture = "./source/res/images/alternate.lif";
     world.meshes[2].texture = "./source/res/images/alternate.lif";
     world.meshes[0].collision = 1;
-    world.meshes[2].collision = 1;
+    world.meshes[1].collision = 1;
 
     world.meshes[0].position = createVector(0.0f, -20.0f, 0.0f);
-    world.meshes[2].position = createVector(0.0f, -10.0f, 0.0f);
+    world.meshes[1].position = createVector(0.0f, -10.0f, 0.0f);
     rescaleMesh(&world.meshes[0], 100.0f);
 
     uploadWorldMeshesToGPU(&world, gpuRenderer.device);

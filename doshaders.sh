@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [[ ! -d source/res/shaders ]]; then
+    mkdir -r source/res/shaders
+    echo "created dir"
+fi
+
 # compiles all GLSL files if 0 args and enters yes
 if [[ $# == 0 ]]; then
     

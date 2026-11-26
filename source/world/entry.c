@@ -42,11 +42,11 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     if (keyStates[SDL_SCANCODE_0]) {
         body->position = blankVector();
         body->rotation = blankVector();
+        body->velocity = blankVector();
     }
 
     if (keyStates[SDL_SCANCODE_9]) {
-        body->position = createVector(999999.0f, 999999.0f, 999999.0f);
-        body->rotation = blankVector();
+        body->velocity = createVector(0.0f, 1.0f, 0.0f);
     }
 
     float speed = WALK_SPEED;

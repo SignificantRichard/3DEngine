@@ -101,13 +101,13 @@ Vector lookVector(Vector rot) {
     float y = -sinPitch;
     float z = cosPitch * cosYaw;
 
-    return createVector(x, y, z);
+    return createVector(-x, -y, -z); // inverted for some odd reason
 }
 
 Vector rightVector(Vector rot) {
     Vector rightRot = rot;
     rightRot.x = 0.0f;
-    rightRot.y += PI * 0.5f;
+    rightRot.y += PI * 1.5f;
     return lookVector(rightRot);
 }
 
@@ -128,5 +128,5 @@ Vector upVector(Vector rot) {
 Vector rotateXZ(Vector v, float angleRad) {
     float c = cosf(angleRad);
     float s = sinf(angleRad);
-    return createVector(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+    return createVector((v.x * c - v.z * s), v.y, v.x * s + v.z * c);
 }
