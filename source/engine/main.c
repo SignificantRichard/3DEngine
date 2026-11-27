@@ -87,13 +87,13 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
         syncLabelTexture(&fpsLabel, gpuRenderer->device);
     }
 
-    double fpsAccumTimeMs = 0.0;
-    uint32_t fpsAccumFrames = 0;
-    char fpsText[64] = "FPS: --.-";
+    // double fpsAccumTimeMs = 0.0;
+    // uint32_t fpsAccumFrames = 0;
+    // char fpsText[64] = "FPS: --.-";
 
     uint64_t frameStart = SDL_GetPerformanceCounter();
     double deltaTimeMs = (targetFrameSec > 0.0) ? (targetFrameSec * 1000.0) : 16.667;
-    uint64_t tick = 0;
+    // uint64_t tick = 0;
 
     while (running) {
         // events and input
@@ -127,16 +127,19 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
             
             if (ray.hit) {
                 int nextY = player.position.y + player.velocity.y;
-                int groundY = ray.position.y + 10.0f;
+                int groundY = ray.position.y + player.hipHeight;
                 
-                if (nextY < groundY) {
+                if (nextY < groundY || player.velocity.y <= 0 && (groundY - nextY) - player.position.y > player.hipHeight) {
                     player.position.y = groundY;
                 }
 
                 player.velocity.y = 0.0f;
                 player.touchingGround = 1;
+
             } else {
-                player.velocity.y -= GRAVITY * deltaTimeMs * 0.0001f;
+                if (player.velocity.y > -TERMINAL_VELOCITY) {
+                    player.velocity.y -= GRAVITY * deltaTimeMs * 0.0001f;
+                }
                 player.touchingGround = 0;
             }
 
@@ -285,9 +288,7 @@ void gameLoop(World* world, AssetManager* assetManager, Renderer* gpuRenderer, U
         deltaTimeMs = ((double)(frameEnd - frameStart) * 1000.0) / (double)freq;
         frameStart = frameEnd;
 
-        printf("%lf\n", 1000.0 / deltaTimeMs);
-
-        tick++;
+        // tick++;
     }
 
     if (gamepad) {

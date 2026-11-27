@@ -15,15 +15,15 @@
 #define MDL_FLAG_NORMALS 0x01
 #define MDL_FLAG_UVS     0x02
 
-static float readFloatLE(const uint8_t* ptr) {
-    uint32_t bits = (uint32_t)ptr[0]
-                  | ((uint32_t)ptr[1] << 8)
-                  | ((uint32_t)ptr[2] << 16)
-                  | ((uint32_t)ptr[3] << 24);
-    float val;
-    memcpy(&val, &bits, sizeof(float));
-    return val;
-}
+// static float readFloatLE(const uint8_t* ptr) {
+//     uint32_t bits = (uint32_t)ptr[0]
+//                   | ((uint32_t)ptr[1] << 8)
+//                   | ((uint32_t)ptr[2] << 16)
+//                   | ((uint32_t)ptr[3] << 24);
+//     float val;
+//     memcpy(&val, &bits, sizeof(float));
+//     return val;
+// }
 
 Vector computeFaceNormal(Face f) {
     // Edge 1 = B - A, Edge 2 = C - A
@@ -315,7 +315,7 @@ Mesh loadMeshFromBin(const char* filename) {
 
     size_t baseSize = 8 + (size_t)vertexAmount * 6 + (size_t)faceAmount * 6;
     size_t normalsBytes = (size_t)faceAmount * 6;
-    size_t uvBytes = (size_t)faceAmount * 24; // 3 corners * 2 floats (4 bytes each)
+    // size_t uvBytes = (size_t)faceAmount * 24; // 3 corners * 2 floats (4 bytes each)
 
     if (fileData.size < baseSize) {
         fprintf(stderr, "Error: Truncated mesh file: %s\n", filename);

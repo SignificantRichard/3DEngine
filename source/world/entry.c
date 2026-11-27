@@ -33,11 +33,6 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     if ((keyStates[SDL_SCANCODE_SPACE] || decodeButtonState(&output, SDL_GAMEPAD_BUTTON_SOUTH)) && body->touchingGround) {
         body->velocity.y = JUMP_POWER;
     }
-    if (keyStates[SDL_SCANCODE_LCTRL]) {
-        body->hipHeight = 5.0f;
-    } else {
-        body->hipHeight = 10.0f;
-    }
 
     if (keyStates[SDL_SCANCODE_0]) {
         body->position = blankVector();
@@ -52,6 +47,13 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     float speed = WALK_SPEED;
     if (keyStates[SDL_SCANCODE_LSHIFT]) {
         speed = RUN_SPEED;
+    }
+
+    if (keyStates[SDL_SCANCODE_LCTRL]) {
+        body->hipHeight = 5.0f;
+        speed = 0.05f;
+    } else {
+        body->hipHeight = 10.0f;
     }
 
     linearMult(&localMovementDirection, delta * speed);
@@ -81,7 +83,7 @@ void pollInput(Body* body, float delta, SDL_Gamepad* gamepad) {
     }
     
     // normalizeVector(&mouseDelta);
-    linearMult(&mouseDelta, 0.01f);
+    linearMult(&mouseDelta, -0.01f);
     linearMult(&localMovementDirection, delta * 0.0025f);
     body->rotationDirection = localMovementDirection;
     vectorAdd(&body->rotation, &mouseDelta);

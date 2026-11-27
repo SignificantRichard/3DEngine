@@ -82,7 +82,7 @@ Sprite loadImageAsSprite(char* path) {
         return constructSprite(0, 0);
     }
 
-    uint16_t headerLength = (imageData.content[0] << 8) + imageData.content[1];
+    // uint16_t headerLength = (imageData.content[0] << 8) + imageData.content[1];
     uint8_t widthLength = imageData.content[2];
     uint8_t heightLength = imageData.content[3];
 

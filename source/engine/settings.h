@@ -26,7 +26,7 @@
 // Game Data
 
 #define GRAVITY 9.8f
-#define TERMINAL_VELOCITY 0.8f
+#define TERMINAL_VELOCITY 98.0f
 
 // Inventory Data
 

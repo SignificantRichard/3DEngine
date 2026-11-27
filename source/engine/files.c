@@ -9,7 +9,7 @@
 
 BinaryFileContents readBinFromFile(const char* fileName) {
     struct stat info;
-    BinaryFileContents binFileContent;
+    BinaryFileContents binFileContent = { .content = NULL, .size = 0 };
     FILE* fptr = fopen(fileName, "rb");
     
     if (stat(fileName, &info) != 0) {
